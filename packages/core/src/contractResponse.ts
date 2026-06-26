@@ -301,6 +301,31 @@ function getRangeKey(statusCode: number): HttpStatusCodeRange | null {
 }
 
 /**
+ * Resolves the raw contract response entry for a concrete status code, before any content-type
+ * resolution. Lookup precedence: exact code → range key (e.g. `'4xx'`) → `'default'`.
+ * Returns `undefined` when no entry matches.
+ */
+export function resolveStatusEntry(
+  responsesByStatusCode: ResponsesByStatusCode,
+  statusCode: number,
+): ApiContractResponse | undefined {
+  const exactEntry = responsesByStatusCode[statusCode as HttpStatusCode];
+  if (exactEntry) {
+    return exactEntry;
+  }
+
+  const rangeKey = getRangeKey(statusCode);
+  if (rangeKey) {
+    const rangeEntry = responsesByStatusCode[rangeKey];
+    if (rangeEntry) {
+      return rangeEntry;
+    }
+  }
+
+  return responsesByStatusCode.default;
+}
+
+/**
  * Combines status-code lookup and content-type resolution into a single call.
  * Lookup precedence: exact code → range key (e.g. `'4xx'`) → `'default'`.
  * Returns `null` when no entry matches or the content-type cannot be matched.
@@ -311,23 +336,6 @@ export function resolveResponseEntry(
   contentType: string | undefined,
   strictContentType: boolean,
 ): ResponseKind | null {
-  const exactEntry = responsesByStatusCode[statusCode as HttpStatusCode];
-  if (exactEntry) {
-    return resolveContractResponse(exactEntry, contentType, strictContentType);
-  }
-
-  const rangeKey = getRangeKey(statusCode);
-  if (rangeKey) {
-    const rangeEntry = responsesByStatusCode[rangeKey];
-    if (rangeEntry) {
-      return resolveContractResponse(rangeEntry, contentType, strictContentType);
-    }
-  }
-
-  const defaultEntry = responsesByStatusCode.default;
-  if (defaultEntry) {
-    return resolveContractResponse(defaultEntry, contentType, strictContentType);
-  }
-
-  return null;
+  const entry = resolveStatusEntry(responsesByStatusCode, statusCode);
+  return entry ? resolveContractResponse(entry, contentType, strictContentType) : null;
 }

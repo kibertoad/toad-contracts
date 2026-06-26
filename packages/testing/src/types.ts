@@ -1,0 +1,116 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type {
+  AnyOfResponses,
+  ApiContract,
+  ExpandStatusRangeKey,
+  HttpStatusCode,
+  InferSchemaInput,
+  NoBodyResponse,
+  RequestPathParamsSchema,
+  SseSchemaByEventName,
+  TypedBlobResponse,
+  TypedSseResponse,
+  TypedStreamResponse,
+  TypedTextResponse,
+  WildcardStatusCodeKey,
+} from "@toad-contracts/core";
+
+/** A single SSE event to emit, as accepted by the mock helpers before schema validation. */
+export type SseMockEvent = { event: string; data: unknown };
+
+/**
+ * Type-safe SSE event union derived from a contract's `schemaByEventName` map.
+ * Each event name is paired with the input type of its Standard Schema.
+ */
+export type SseMockEventInput<S extends SseSchemaByEventName> = {
+  [K in keyof S & string]: { event: K; data: StandardSchemaV1.InferInput<NonNullable<S[K]>> };
+}[keyof S & string];
+
+/**
+ * Serializes a list of SSE events into a `text/event-stream` body. Each event becomes an
+ * `event:`/`data:` pair terminated by a blank line, matching the SSE wire format. The trailing
+ * blank line after the final event is required: a spec-compliant client discards a trailing event
+ * that is not terminated by a blank line.
+ *
+ * @example
+ * formatSseResponse([{ event: 'completed', data: { totalCount: 1 } }])
+ * // "event: completed\ndata: {\"totalCount\":1}\n\n"
+ */
+export function formatSseResponse(events: SseMockEvent[]): string {
+  return events
+    .map(({ event, data }) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join("");
+}
+
+// Maps a single responsesByStatusCode entry to the body field(s) the mock needs.
+// ContractNoBody (symbol)  → no required body field
+// NoBodyResponse           → no required body field
+// TypedSseResponse         → { events }
+// TypedTextResponse        → { responseText }
+// TypedBlobResponse        → { responseBlob }
+// TypedStreamResponse      → { responseStream }
+// AnyOfResponses           → { responseJson?; events? } for dual-mode (SSE + JSON)
+// StandardSchemaV1 (JSON)  → { responseJson }
+type InferBodyParam<T> = T extends symbol
+  ? { responseJson?: null }
+  : T extends NoBodyResponse
+    ? { responseJson?: null }
+    : T extends TypedSseResponse<infer S extends SseSchemaByEventName>
+      ? { events: SseMockEventInput<S>[] }
+      : T extends TypedTextResponse
+        ? { responseText: string }
+        : T extends TypedBlobResponse
+          ? { responseBlob: string }
+          : T extends TypedStreamResponse
+            ? { responseStream: string }
+            : T extends AnyOfResponses<infer Items>
+              ? AnyOfBodyParam<Items>
+              : T extends StandardSchemaV1
+                ? { responseJson: StandardSchemaV1.InferInput<T> }
+                : object;
+
+// Combines the JSON and SSE body fields contributed by the members of an anyOfResponses entry.
+// A member that is a JSON schema contributes `responseJson`; an SSE member contributes `events`.
+// Members of any other kind (text/blob/stream) contribute nothing.
+type AnyOfBodyParam<Items> = (Extract<Items, StandardSchemaV1> extends never
+  ? object
+  : { responseJson: StandardSchemaV1.InferInput<Extract<Items, StandardSchemaV1>> }) &
+  ([Extract<Items, TypedSseResponse>] extends [never]
+    ? object
+    : Extract<Items, TypedSseResponse> extends TypedSseResponse<
+          infer S extends SseSchemaByEventName
+        >
+      ? { events: SseMockEventInput<S>[] }
+      : object);
+
+type ExactStatusCodePairs<TContract extends ApiContract> = {
+  [K in keyof TContract["responsesByStatusCode"] & HttpStatusCode]: {
+    responseStatus: K;
+  } & InferBodyParam<NonNullable<TContract["responsesByStatusCode"][K]>>;
+}[keyof TContract["responsesByStatusCode"] & HttpStatusCode];
+
+type RangeStatusCodePairs<TContract extends ApiContract> = {
+  [K in keyof TContract["responsesByStatusCode"] & WildcardStatusCodeKey]: {
+    responseStatus: Exclude<
+      ExpandStatusRangeKey<K>,
+      keyof TContract["responsesByStatusCode"] & HttpStatusCode
+    >;
+  } & InferBodyParam<NonNullable<TContract["responsesByStatusCode"][K]>>;
+}[keyof TContract["responsesByStatusCode"] & WildcardStatusCodeKey];
+
+type StatusCodeBodyPair<TContract extends ApiContract> =
+  | ExactStatusCodePairs<TContract>
+  | RangeStatusCodePairs<TContract>;
+
+type PathParamsField<TContract extends ApiContract> =
+  TContract["requestPathParamsSchema"] extends RequestPathParamsSchema
+    ? { pathParams: InferSchemaInput<TContract["requestPathParamsSchema"]> }
+    : { pathParams?: never };
+
+/**
+ * Parameters accepted by `mockResponse`, derived from a contract. A discriminated union on
+ * `responseStatus`: each concrete status code (or wildcard range) carries exactly the body fields
+ * its declared response kind requires.
+ */
+export type MockResponseParams<TContract extends ApiContract> = PathParamsField<TContract> &
+  StatusCodeBodyPair<TContract>;

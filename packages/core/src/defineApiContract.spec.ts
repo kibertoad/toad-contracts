@@ -22,29 +22,25 @@ import {
   getSseSchemaByEventName,
   hasAnySuccessSseResponse,
   mapApiContractToPath,
-  type PathParamKeysResolver,
-  type RequestObjectSchema,
+  type ObjectKeysCarrier,
 } from "./defineApiContract.ts";
 import type { InferJsonSuccessResponses } from "./inferTypes.ts";
 
-// The core is vendor-neutral: it never reads object keys itself, it delegates to a
-// PathParamKeysResolver supplied by the schema-library adapter. These tests exercise that contract
-// against a minimal hand-rolled Standard Schema that carries its keys directly, rather than
-// depending on any one library's introspection (the valibot `.entries` path is covered by the
-// adapter's own tests in @toad-contracts/valibot).
+// The core is vendor-neutral: it never reads object keys itself, it relies on the path-params schema
+// implementing core's ObjectKeysCarrier surface (dependency inversion). These tests exercise that
+// contract against a minimal hand-rolled Standard Schema that implements the surface directly,
+// rather than depending on any one library's introspection (the valibot `.entries` path is covered
+// by the adapter's own tests in @toad-contracts/valibot).
 const pathParamsSchema = <const K extends readonly string[]>(
   keys: K,
-): StandardSchemaV1<Record<K[number], string>, Record<K[number], string>> & { keys: K } => ({
+): StandardSchemaV1<Record<K[number], string>, Record<K[number], string>> & ObjectKeysCarrier => ({
   "~standard": {
     version: 1,
     vendor: "toad-contracts-test",
     validate: (value) => ({ value: value as Record<K[number], string> }),
   },
-  keys,
+  getObjectKeys: () => keys,
 });
-
-const pathParamKeys: PathParamKeysResolver = (schema: RequestObjectSchema): readonly string[] =>
-  (schema as unknown as { keys: readonly string[] }).keys;
 
 describe("defineApiContract", () => {
   describe("type inference", () => {
@@ -63,7 +59,7 @@ describe("defineApiContract", () => {
     it("infers pathResolver param type from requestPathParamsSchema", () => {
       defineApiContract({
         method: "get",
-        requestPathParamsSchema: object({ userId: string(), orgId: string() }),
+        requestPathParamsSchema: pathParamsSchema(["userId", "orgId"]),
         pathResolver: ({ userId, orgId }) => {
           expectTypeOf(userId).toEqualTypeOf<string>();
           expectTypeOf(orgId).toEqualTypeOf<string>();
@@ -80,7 +76,7 @@ describe("defineApiContract", () => {
         responsesByStatusCode: {},
       });
 
-      expect(mapApiContractToPath(route, pathParamKeys)).toBe("/users");
+      expect(mapApiContractToPath(route)).toBe("/users");
     });
 
     it("types pathResolver param as undefined when no requestPathParamsSchema", () => {
@@ -157,7 +153,7 @@ describe("defineApiContract", () => {
     it("preserves ContractNoBody sentinel in responsesByStatusCode", () => {
       const route = defineApiContract({
         method: "delete",
-        requestPathParamsSchema: object({ userId: string() }),
+        requestPathParamsSchema: pathParamsSchema(["userId"]),
         pathResolver: ({ userId }) => `/users/${userId}`,
         responsesByStatusCode: { 204: ContractNoBody },
       });
@@ -211,7 +207,7 @@ describe("mapApiContractToPath", () => {
       responsesByStatusCode: {},
     });
 
-    expect(mapApiContractToPath(route, pathParamKeys)).toBe("/users");
+    expect(mapApiContractToPath(route)).toBe("/users");
   });
 
   it("replaces path params with :param placeholders", () => {
@@ -222,7 +218,7 @@ describe("mapApiContractToPath", () => {
       responsesByStatusCode: {},
     });
 
-    expect(mapApiContractToPath(route, pathParamKeys)).toBe("/users/:userId");
+    expect(mapApiContractToPath(route)).toBe("/users/:userId");
   });
 
   it("replaces multiple path params", () => {
@@ -233,7 +229,7 @@ describe("mapApiContractToPath", () => {
       responsesByStatusCode: {},
     });
 
-    expect(mapApiContractToPath(route, pathParamKeys)).toBe("/orgs/:orgId/users/:userId");
+    expect(mapApiContractToPath(route)).toBe("/orgs/:orgId/users/:userId");
   });
 });
 
@@ -246,7 +242,7 @@ describe("describeApiContract", () => {
       responsesByStatusCode: {},
     });
 
-    expect(describeApiContract(route, pathParamKeys)).toBe("GET /users/:userId");
+    expect(describeApiContract(route)).toBe("GET /users/:userId");
   });
 
   it("works for POST routes", () => {
@@ -257,7 +253,7 @@ describe("describeApiContract", () => {
       responsesByStatusCode: {},
     });
 
-    expect(describeApiContract(route, pathParamKeys)).toBe("POST /users");
+    expect(describeApiContract(route)).toBe("POST /users");
   });
 });
 

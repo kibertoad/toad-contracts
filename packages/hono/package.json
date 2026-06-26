@@ -1,26 +1,25 @@
 {
-  "name": "@toad-contracts/frontend-http-client",
+  "name": "@toad-contracts/hono",
   "version": "0.1.0",
   "private": false,
-  "description": "Opinionated wretch-based HTTP client driven by @toad-contracts standard-schema contracts",
+  "description": "Hono adapter for @toad-contracts: mount fully typed, self-validating routes from standard-schema contracts",
   "keywords": [
     "api",
-    "browser",
-    "client",
+    "backend",
     "contract",
     "contracts",
-    "frontend",
-    "http",
+    "hono",
+    "route",
+    "server",
     "standard-schema",
-    "typesafe",
-    "wretch"
+    "typesafe"
   ],
   "homepage": "https://github.com/kibertoad/toad-contracts",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git://github.com/kibertoad/toad-contracts.git",
-    "directory": "packages/frontend-http-client"
+    "directory": "packages/hono"
   },
   "files": [
     "dist"
@@ -46,23 +45,20 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "@toad-contracts/core": "workspace:*",
-    "fast-querystring": "^1.1.2",
-    "parse-sse": "^0.1.0"
+    "@toad-contracts/core": "workspace:*"
   },
   "devDependencies": {
     "@lokalise/tsconfig": "^5.0.0",
     "@toad-contracts/valibot": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
-    "mockttp": "^4.4.2",
-    "rimraf": "^6.1.3",
+    "hono": "^4.12.27",
+    "rimraf": "^6.1.2",
     "typescript": "7.0.1-rc",
     "valibot": "^1.4.1",
-    "vitest": "^4.1.9",
-    "wretch": "^3.0.9"
+    "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "wretch": "^3.0.0"
+    "hono": ">=4.0.0"
   }
 }

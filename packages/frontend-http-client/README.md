@@ -23,11 +23,12 @@ pnpm add @toad-contracts/frontend-http-client wretch
 import wretch from "wretch";
 import { sendByApiContract } from "@toad-contracts/frontend-http-client";
 import { defineApiContract } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { number, object, string } from "valibot";
 
 const getProduct = defineApiContract({
   method: "get",
-  requestPathParamsSchema: object({ productId: string() }),
+  requestPathParamsSchema: withObjectKeys(object({ productId: string() })),
   pathResolver: ({ productId }) => `/products/${productId}`,
   responsesByStatusCode: {
     200: object({ id: number(), title: string() }),

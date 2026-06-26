@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { boolean, number, object, optional, pipe, string, transform, unknown } from "valibot";
 import { describe, expectTypeOf, it } from "vitest";
 import type {
@@ -21,9 +22,17 @@ import {
   streamResponse,
   textResponse,
 } from "./contractResponse.ts";
-import { defineApiContract } from "./defineApiContract.ts";
+import { defineApiContract, type ObjectKeysCarrier } from "./defineApiContract.ts";
 
 type DefaultHeaders = Record<string, string>;
+
+// Stands in for a schema-library adapter implementing core's ObjectKeysCarrier surface, so path-param
+// schemas satisfy RequestPathParamsSchema without core depending on a concrete schema library.
+const withKeys = <T extends StandardSchemaV1>(schema: T): T & ObjectKeysCarrier =>
+  Object.assign(schema, {
+    getObjectKeys: () =>
+      Object.keys((schema as unknown as { entries: Record<string, unknown> }).entries),
+  });
 
 describe("clientTypes", () => {
   describe("ClientRequestParams", () => {
@@ -46,7 +55,7 @@ describe("clientTypes", () => {
     it("requires pathParams when requestPathParamsSchema is defined", () => {
       const contract = defineApiContract({
         method: "get",
-        requestPathParamsSchema: object({ id: string() }),
+        requestPathParamsSchema: withKeys(object({ id: string() })),
         pathResolver: ({ id }) => `/products/${id}`,
         responsesByStatusCode: { 200: unknown() },
       });

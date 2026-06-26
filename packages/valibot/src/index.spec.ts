@@ -45,6 +45,17 @@ describe("mapApiContractToPath (valibot adapter)", () => {
 
     expect(mapApiContractToPath(route)).toBe("/orgs/:orgId/users/:userId");
   });
+
+  it("throws an actionable error when the path-param schema does not expose .entries", () => {
+    const route = defineApiContract({
+      method: "get",
+      requestPathParamsSchema: string(),
+      pathResolver: (id) => `/users/${id}`,
+      responsesByStatusCode: {},
+    });
+
+    expect(() => mapApiContractToPath(route)).toThrow(/must be a valibot object schema/);
+  });
 });
 
 describe("describeApiContract (valibot adapter)", () => {

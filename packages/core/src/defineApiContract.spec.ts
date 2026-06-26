@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { object, string } from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { ContractNoBody } from "./constants.ts";
@@ -26,10 +27,24 @@ import {
 } from "./defineApiContract.ts";
 import type { InferJsonSuccessResponses } from "./inferTypes.ts";
 
-// The core works with any Standard Schema implementation. These tests build schemas with valibot,
-// whose object schemas expose `.entries`; this resolver lists their keys for path mapping.
-const valibotKeys: PathParamKeysResolver = (schema: RequestObjectSchema): string[] =>
-  Object.keys((schema as unknown as { entries: Record<string, unknown> }).entries);
+// The core is vendor-neutral: it never reads object keys itself, it delegates to a
+// PathParamKeysResolver supplied by the schema-library adapter. These tests exercise that contract
+// against a minimal hand-rolled Standard Schema that carries its keys directly, rather than
+// depending on any one library's introspection (the valibot `.entries` path is covered by the
+// adapter's own tests in @toad-contracts/valibot).
+const pathParamsSchema = <const K extends readonly string[]>(
+  keys: K,
+): StandardSchemaV1<Record<K[number], string>, Record<K[number], string>> & { keys: K } => ({
+  "~standard": {
+    version: 1,
+    vendor: "toad-contracts-test",
+    validate: (value) => ({ value: value as Record<K[number], string> }),
+  },
+  keys,
+});
+
+const pathParamKeys: PathParamKeysResolver = (schema: RequestObjectSchema): readonly string[] =>
+  (schema as unknown as { keys: readonly string[] }).keys;
 
 describe("defineApiContract", () => {
   describe("type inference", () => {
@@ -65,7 +80,7 @@ describe("defineApiContract", () => {
         responsesByStatusCode: {},
       });
 
-      expect(mapApiContractToPath(route, valibotKeys)).toBe("/users");
+      expect(mapApiContractToPath(route, pathParamKeys)).toBe("/users");
     });
 
     it("types pathResolver param as undefined when no requestPathParamsSchema", () => {
@@ -196,29 +211,29 @@ describe("mapApiContractToPath", () => {
       responsesByStatusCode: {},
     });
 
-    expect(mapApiContractToPath(route, valibotKeys)).toBe("/users");
+    expect(mapApiContractToPath(route, pathParamKeys)).toBe("/users");
   });
 
   it("replaces path params with :param placeholders", () => {
     const route = defineApiContract({
       method: "get",
-      requestPathParamsSchema: object({ userId: string() }),
+      requestPathParamsSchema: pathParamsSchema(["userId"]),
       pathResolver: ({ userId }) => `/users/${userId}`,
       responsesByStatusCode: {},
     });
 
-    expect(mapApiContractToPath(route, valibotKeys)).toBe("/users/:userId");
+    expect(mapApiContractToPath(route, pathParamKeys)).toBe("/users/:userId");
   });
 
   it("replaces multiple path params", () => {
     const route = defineApiContract({
       method: "get",
-      requestPathParamsSchema: object({ orgId: string(), userId: string() }),
+      requestPathParamsSchema: pathParamsSchema(["orgId", "userId"]),
       pathResolver: ({ orgId, userId }) => `/orgs/${orgId}/users/${userId}`,
       responsesByStatusCode: {},
     });
 
-    expect(mapApiContractToPath(route, valibotKeys)).toBe("/orgs/:orgId/users/:userId");
+    expect(mapApiContractToPath(route, pathParamKeys)).toBe("/orgs/:orgId/users/:userId");
   });
 });
 
@@ -226,12 +241,12 @@ describe("describeApiContract", () => {
   it("returns uppercased method and path", () => {
     const route = defineApiContract({
       method: "get",
-      requestPathParamsSchema: object({ userId: string() }),
+      requestPathParamsSchema: pathParamsSchema(["userId"]),
       pathResolver: ({ userId }) => `/users/${userId}`,
       responsesByStatusCode: {},
     });
 
-    expect(describeApiContract(route, valibotKeys)).toBe("GET /users/:userId");
+    expect(describeApiContract(route, pathParamKeys)).toBe("GET /users/:userId");
   });
 
   it("works for POST routes", () => {
@@ -242,7 +257,7 @@ describe("describeApiContract", () => {
       responsesByStatusCode: {},
     });
 
-    expect(describeApiContract(route, valibotKeys)).toBe("POST /users");
+    expect(describeApiContract(route, pathParamKeys)).toBe("POST /users");
   });
 });
 

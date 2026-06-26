@@ -1,0 +1,183 @@
+# @toad-contracts/hono
+
+Hono adapter for [`@toad-contracts`](https://github.com/kibertoad/toad-contracts). Define an HTTP
+contract once with `defineApiContract` and mount it as a fully typed, self-validating Hono route. The
+method, path and request schemas are derived from the contract, and the handler's `c.req.valid(...)`
+data and return type are inferred from it.
+
+Unlike a generic Hono validator, this package rolls its own validator typed directly from the
+contract surface, so there is no separate type provider to wire up. Validation runs against the
+contract's Standard Schemas, so any Standard Schema library (valibot, zod, ...) works.
+
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Builders](#builders)
+  - [`buildHonoRoute`](#buildhonoroute)
+  - [`buildHonoRouteHandler`](#buildhonoroutehandler)
+  - [Accessing the contract](#accessing-the-contract)
+  - [Validation errors](#validation-errors)
+  - [Adding middleware from contract metadata](#adding-middleware-from-contract-metadata)
+- [Test helper](#test-helper)
+  - [`requestByContract`](#requestbycontract)
+
+## Requirements
+
+`hono` is a peer dependency (`>=4`). This package is ESM-only.
+
+## Builders
+
+### `buildHonoRoute`
+
+`buildHonoRoute(app, contract, handler)` registers a contract on a Hono app and returns the app for
+chaining. The HTTP method and path come from the contract; one validator is wired per declared
+request schema (path params, query, headers, body). The handler is typed from the contract:
+
+- `c.req.valid('param' | 'query' | 'header' | 'json')` carry the parsed, transformed request data
+  (the `'json'` target exists only for contracts with a request body).
+- the return value is constrained to the contract's `responsesByStatusCode`, so `c.json(body, status)`
+  is checked against the declared body and status.
+
+```ts
+import { buildHonoRoute } from "@toad-contracts/hono";
+import { defineApiContract, ContractNoBody } from "@toad-contracts/core";
+import { Hono } from "hono";
+
+const app = new Hono();
+
+// GET
+buildHonoRoute(
+  app,
+  defineApiContract({
+    method: "get",
+    requestPathParamsSchema: PATH_PARAMS_SCHEMA,
+    requestQuerySchema: QUERY_SCHEMA,
+    pathResolver: ({ userId }) => `/users/${userId}`,
+    responsesByStatusCode: { 200: RESPONSE_BODY_SCHEMA },
+  }),
+  (c) => {
+    const { userId } = c.req.valid("param");
+    const query = c.req.valid("query");
+    return c.json({ name: "Frodo" }, 200);
+  },
+);
+
+// POST
+buildHonoRoute(
+  app,
+  defineApiContract({
+    method: "post",
+    requestBodySchema: REQUEST_BODY_SCHEMA,
+    pathResolver: () => "/users",
+    responsesByStatusCode: { 201: RESPONSE_BODY_SCHEMA },
+  }),
+  (c) => {
+    const body = c.req.valid("json");
+    return c.json({ name: "Sam" }, 201);
+  },
+);
+
+// DELETE returning no body
+buildHonoRoute(
+  app,
+  defineApiContract({
+    method: "delete",
+    requestPathParamsSchema: PATH_PARAMS_SCHEMA,
+    pathResolver: ({ userId }) => `/users/${userId}`,
+    responsesByStatusCode: { 204: ContractNoBody },
+  }),
+  (c) => c.body(null, 204),
+);
+```
+
+The route path is derived by calling the contract's `pathResolver` with placeholder params, so a
+resolver that builds `/users/<userId>` becomes the Hono path `/users/:userId`. This assumes
+`pathResolver` interpolates param values directly; a resolver that transforms a value (e.g.
+`encodeURIComponent`) would corrupt the placeholder.
+
+### `buildHonoRouteHandler`
+
+Define a handler separately from the route, typed from the contract, then pass it to `buildHonoRoute`:
+
+```ts
+import { buildHonoRoute, buildHonoRouteHandler } from "@toad-contracts/hono";
+
+const handler = buildHonoRouteHandler(contract, (c) => {
+  // c.req.valid(...) and the return type are typed from the contract
+  return c.json({ name: "Sam" }, 201);
+});
+
+buildHonoRoute(app, contract, handler);
+```
+
+### Accessing the contract
+
+The contract is exposed on the context, so handlers and middleware can read it:
+
+```ts
+buildHonoRoute(app, contract, (c) => {
+  const apiContract = c.get("apiContract");
+  return c.json({ name: "Frodo" }, 200);
+});
+```
+
+### Validation errors
+
+When a request fails contract validation, the validator throws a `SchemaValidationError`
+(from `@toad-contracts/core`) by default. Map it in the app's `onError`:
+
+```ts
+import { SchemaValidationError } from "@toad-contracts/core";
+
+app.onError((error, c) => {
+  if (error instanceof SchemaValidationError) {
+    return c.json({ issues: error.issues }, 400);
+  }
+  throw error;
+});
+```
+
+Or handle it per route with `onValidationError`:
+
+```ts
+buildHonoRoute(app, contract, handler, {
+  onValidationError: (error, c) => c.json({ issues: error.issues }, 400),
+});
+```
+
+### Adding middleware from contract metadata
+
+`buildHonoRoute` accepts an optional `contractMetadataToRouteMapper` that maps the contract metadata
+to extra middleware appended after the validators:
+
+```ts
+buildHonoRoute(app, contract, handler, {
+  contractMetadataToRouteMapper: (metadata) => ({
+    middleware: [authMiddlewareFor(metadata)],
+  }),
+});
+```
+
+## Test helper
+
+### `requestByContract`
+
+`requestByContract(app, contract, params)` dispatches a request against a Hono app from a contract
+using Hono's native `app.request()` (no server needed). Request inputs are validated and transformed
+through the contract's request schemas before sending. Params are typed from the contract: each field
+is required only when the contract declares the matching request schema.
+
+```ts
+import { requestByContract } from "@toad-contracts/hono";
+
+const response = await requestByContract(app, createUserContract, {
+  pathParams: { userId: "1" },
+  body: { id: "2" },
+  headers: async () => ({ authorization: "token" }), // plain object or (a)sync function
+});
+
+expect(response.status).toBe(201);
+```
+
+`pathPrefix` is always optional; when provided it is prepended to the path resolved from the contract
+(e.g. to hit a route mounted under a Hono base path).

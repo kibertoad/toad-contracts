@@ -17,6 +17,7 @@ contract's Standard Schemas, so any Standard Schema library (valibot, zod, ...) 
   - [`buildHonoRouteHandler`](#buildhonoroutehandler)
   - [Accessing the contract](#accessing-the-contract)
   - [Validation errors](#validation-errors)
+  - [Query parameters and arrays](#query-parameters-and-arrays)
   - [Adding middleware from contract metadata](#adding-middleware-from-contract-metadata)
 - [Test helper](#test-helper)
   - [`requestByContract`](#requestbycontract)
@@ -150,6 +151,26 @@ buildHonoRoute(app, contract, handler, {
   onValidationError: (error, c) => c.json({ issues: error.issues }, 400),
 });
 ```
+
+A request whose body is empty or not valid JSON (when the contract declares a request body) is
+treated the same way: it surfaces as a `SchemaValidationError` rather than escaping as an unhandled
+500, so the same `onError` / `onValidationError` handling applies.
+
+### Query parameters and arrays
+
+Repeated query keys are validated as arrays (`?id=1&id=2` → `["1", "2"]`), and a single occurrence
+is validated as a scalar (`?q=find` → `"find"`), mirroring Hono's own validator so both scalar and
+array query schemas work.
+
+Two array cases cannot be represented in a query string, by HTTP and Hono convention rather than a
+limitation of this adapter (a browser, `fetch`, or `requestByContract` all hit the same boundary):
+
+- a single-element array round-trips as a scalar (`?tags=x` is read back as `"x"`, not `["x"]`);
+- an empty array cannot be sent at all (the key is simply absent).
+
+If a field must accept one value, model it to accept the scalar (or absent) form, for example
+`optional(union([array(string()), string()]))`. In tests that exercise an array query param via
+`requestByContract`, send two or more values.
 
 ### Adding middleware from contract metadata
 

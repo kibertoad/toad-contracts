@@ -4,8 +4,9 @@ The [valibot](https://valibot.dev) adapter for [`@toad-contracts/core`](../core)
 
 The core contract library is written against the vendor-neutral
 [Standard Schema](https://github.com/standard-schema/spec) interface, which valibot v1 implements.
-This package re-exports the entire core API and adds valibot-aware versions of the two helpers that
-need to read an object schema's keys, something the Standard Schema interface does not expose.
+This package re-exports the entire core API and adds `withObjectKeys`, the valibot implementation of
+the object-key introspection core needs for path-param schemas, something the Standard Schema
+interface does not expose.
 
 `valibot` is a peer dependency.
 
@@ -24,12 +25,13 @@ import {
   defineApiContract,
   mapApiContractToPath,
   describeApiContract,
+  withObjectKeys,
 } from "@toad-contracts/valibot";
 import { object, string } from "valibot";
 
 const getUser = defineApiContract({
   method: "get",
-  requestPathParamsSchema: object({ userId: string() }),
+  requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: {
     200: object({ id: string(), name: string() }),
@@ -42,15 +44,24 @@ describeApiContract(getUser); // "GET /users/:userId"
 
 ## What this package adds
 
-`mapApiContractToPath(contract)` and `describeApiContract(contract)` are single-argument here. They
-wrap the core functions with a resolver that lists a valibot object schema's keys via its `.entries`
-property:
+`withObjectKeys(schema)` is the only addition; everything else is a direct re-export from
+`@toad-contracts/core`.
+
+Core needs a contract's `requestPathParamsSchema` to expose its object keys to build the route path,
+which the Standard Schema interface does not provide. `withObjectKeys` attaches that capability
+(core's `ObjectKeysCarrier`) to a valibot object schema by reading its `.entries`:
 
 ```ts
 // effectively:
-const getValibotPathParamKeys = (schema) => Object.keys(schema.entries);
-export const mapApiContractToPath = (contract) =>
-  coreMapApiContractToPath(contract, getValibotPathParamKeys);
+export const withObjectKeys = (schema) =>
+  Object.assign(schema, { getObjectKeys: () => Object.keys(schema.entries) });
 ```
 
-Everything else is a direct re-export from `@toad-contracts/core`.
+Wrap any `requestPathParamsSchema` with it. Only plain object schemas (`object`, `strictObject`,
+`looseObject`, `objectWithRest`) expose `.entries`; a wrapped schema such as `pipe(object(...), ...)`
+or a non-object schema does not, so `withObjectKeys` throws an actionable `TypeError` rather than
+silently producing a route with no path params.
+
+The path-mapping helpers `mapApiContractToPath(contract)` and `describeApiContract(contract)` are
+re-exported from core unchanged and already single-argument; they read the keys through whatever
+`withObjectKeys` attached.

@@ -196,5 +196,40 @@ describe("buildHonoRoute", () => {
       expect(response.status).toBe(422);
       expect(await response.json()).toEqual({ handled: 1 });
     });
+
+    it("treats a malformed JSON body as a SchemaValidationError, not an unhandled 500", async () => {
+      const app = new Hono();
+      app.onError((error, c) => {
+        if (error instanceof SchemaValidationError) {
+          return c.json({ issues: error.issues.length }, 400);
+        }
+        return c.json({ unexpected: true }, 500);
+      });
+      buildHonoRoute(app, contract, (c) => c.json({ name: "ok" }, 200));
+
+      const response = await app.request("/widget", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{ not json",
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ issues: 1 });
+    });
+
+    it("routes an empty JSON body to onValidationError", async () => {
+      const app = new Hono();
+      buildHonoRoute(app, contract, (c) => c.json({ name: "ok" }, 200), {
+        onValidationError: (error, c) => c.json({ handled: error.issues.length }, 422),
+      });
+
+      const response = await app.request("/widget", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ handled: 1 });
+    });
   });
 });

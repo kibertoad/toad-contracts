@@ -11,6 +11,13 @@ const resolveHeaders = async (headers: unknown): Promise<Record<string, string>>
 /**
  * Serializes validated query params into a query string. Array values become repeated keys (e.g.
  * `?id=1&id=2`); `undefined`/`null` values are skipped.
+ *
+ * Two array cases cannot survive a query-string round-trip, by HTTP and Hono convention rather than
+ * a quirk of this helper (a real client hits the same limits):
+ * - a single-element array (`["x"]`) serializes to one `key=x`, which the route's validator reads
+ *   back as the scalar `"x"` (repeated keys are needed to recover an array);
+ * - an empty array (`[]`) serializes to nothing, so the key is absent on the receiving side.
+ * Model such fields to accept the scalar/absent form, or send two or more values in tests.
  */
 const buildQueryString = (query: unknown): string => {
   const searchParams = new URLSearchParams();

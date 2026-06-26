@@ -17,7 +17,7 @@ const collectQuery = (c: Context): Record<string, string | string[]> =>
     ),
   );
 
-const readRawInput = (c: Context, target: ValidatorTarget): unknown | Promise<unknown> => {
+const readRawInput = async (c: Context, target: ValidatorTarget): Promise<unknown> => {
   switch (target) {
     case "param":
       return c.req.param();
@@ -26,7 +26,18 @@ const readRawInput = (c: Context, target: ValidatorTarget): unknown | Promise<un
     case "header":
       return c.req.header();
     case "json":
-      return c.req.json();
+      // `c.req.json()` throws a SyntaxError (not a SchemaValidationError) when the body is empty or
+      // not valid JSON. Surface that as a SchemaValidationError so a malformed body is handled like
+      // any other request validation failure (routed to `onValidationError` / the app's `onError`
+      // as a 400) instead of escaping the validator and surfacing as a 500.
+      try {
+        return await c.req.json();
+      } catch {
+        throw new SchemaValidationError(
+          [{ message: "Request body is not valid JSON" }],
+          "Request body is not valid JSON",
+        );
+      }
   }
 };
 

@@ -14,22 +14,27 @@ The
 contract logic only depends on the `@standard-schema/spec` interface, not on a specific library.
 
 > Using valibot? Prefer [`@toad-contracts/valibot`](../valibot). It re-exports everything here and
-> adds a drop-in `mapApiContractToPath(contract)` / `describeApiContract(contract)` that reads
-> valibot object schemas directly. See [Path mapping](#path-mapping) below for why the core form
-> takes an extra argument.
+> adds `withObjectKeys`, which lets a valibot object schema satisfy the object-key introspection core
+> needs for path-param schemas. See [Path mapping](#path-mapping) below for the underlying mechanism.
 
 ## Defining contracts
 
 ### REST routes
 
+A `requestPathParamsSchema` must expose its object keys so the route path can be built from the
+contract (see [Path mapping](#path-mapping)). The Standard Schema interface does not expose keys, so
+wrap the schema with your adapter's helper, here `withObjectKeys` from `@toad-contracts/valibot`.
+Query, header, body, and response schemas need no wrapping.
+
 ```ts
 import { defineApiContract, noBodyResponse } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { object, string, pipe, uuid } from "valibot";
 
 // GET with path params
 const getUser = defineApiContract({
   method: "get",
-  requestPathParamsSchema: object({ userId: pipe(string(), uuid()) }),
+  requestPathParamsSchema: withObjectKeys(object({ userId: pipe(string(), uuid()) })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: {
     200: object({ id: string(), name: string() }),
@@ -49,7 +54,7 @@ const createUser = defineApiContract({
 // DELETE with no response body
 const deleteUser = defineApiContract({
   method: "delete",
-  requestPathParamsSchema: object({ userId: pipe(string(), uuid()) }),
+  requestPathParamsSchema: withObjectKeys(object({ userId: pipe(string(), uuid()) })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: {
     204: noBodyResponse(),
@@ -170,22 +175,48 @@ correct regardless of the actual status code.
 
 ## Path mapping
 
-The Standard Schema spec is validation-only: it does not expose an object schema's keys at runtime.
-So the core `mapApiContractToPath` / `describeApiContract` take a second argument that lists a
-schema's path-param keys for whichever schema library you use:
+`mapApiContractToPath(contract)` turns a contract into an Express/Fastify-style path pattern
+(`"/users/:userId"`); `describeApiContract(contract)` returns `"GET /users/:userId"`. Both are
+single-argument.
+
+To build the pattern, core needs the path-param field names. The Standard Schema spec is
+validation-only and does not expose an object schema's keys at runtime, so core defines a small
+`ObjectKeysCarrier` interface and requires a `requestPathParamsSchema` to implement it:
+
+```ts
+export interface ObjectKeysCarrier {
+  getObjectKeys: () => readonly string[];
+}
+```
+
+The dependency is inverted: core depends only on this interface, never on a concrete schema library,
+and adapters satisfy it. `@toad-contracts/valibot` exposes `withObjectKeys`, which reads valibot's
+`.entries`:
 
 ```ts
 import { mapApiContractToPath, describeApiContract } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
+import { object, string } from "valibot";
 
-// valibot object schemas expose `.entries`
-const getKeys = (schema) => Object.keys((schema as { entries: Record<string, unknown> }).entries);
+const getUser = defineApiContract({
+  method: "get",
+  requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+  pathResolver: ({ userId }) => `/users/${userId}`,
+  responsesByStatusCode: { 200: object({ id: string() }) },
+});
 
-mapApiContractToPath(getUser, getKeys); // "/users/:userId"
-describeApiContract(getUser, getKeys); // "GET /users/:userId"
+mapApiContractToPath(getUser); // "/users/:userId"
+describeApiContract(getUser); // "GET /users/:userId"
 ```
 
-`@toad-contracts/valibot` ships this resolver pre-wired so you can call the single-argument
-`mapApiContractToPath(contract)` form.
+Without an adapter, implement the interface yourself by attaching `getObjectKeys` to any Standard
+Schema:
+
+```ts
+const pathParams = Object.assign(object({ userId: string() }), {
+  getObjectKeys: () => ["userId"],
+});
+```
 
 ## Type utilities
 
@@ -220,15 +251,16 @@ Primarily consumed by HTTP client implementations.
 - `ApiContract`: union of all contract variants
   (`GetApiContract | DeleteApiContract | PayloadApiContract`).
 - `GetApiContract`, `DeleteApiContract`, `PayloadApiContract`: individual variants.
-- `RequestPathParamsSchema`, `RequestQuerySchema`, `RequestHeaderSchema`, `ResponseHeaderSchema`:
-  Standard Schema object-schema constraints for generic helpers.
-- `PathParamKeysResolver`: the `(schema) => keys` function `mapApiContractToPath` expects.
+- `RequestQuerySchema`, `RequestHeaderSchema`, `ResponseHeaderSchema`: Standard Schema object-schema
+  constraints for generic helpers.
+- `RequestPathParamsSchema`: a Standard Schema that also implements `ObjectKeysCarrier`.
+- `ObjectKeysCarrier`: the `{ getObjectKeys(): readonly string[] }` capability a path-param schema
+  must add so `mapApiContractToPath` can read its keys (see [Path mapping](#path-mapping)).
 
 ## Utility functions
 
-- `mapApiContractToPath(contract, getPathParamKeys)`: Express/Fastify-style path pattern, e.g.
-  `"/users/:userId"`.
-- `describeApiContract(contract, getPathParamKeys)`: human-readable `"METHOD /path"` string.
+- `mapApiContractToPath(contract)`: Express/Fastify-style path pattern, e.g. `"/users/:userId"`.
+- `describeApiContract(contract)`: human-readable `"METHOD /path"` string.
 - `hasAnySuccessSseResponse(contract)`: `true` when any 2xx entry is an SSE response (including
   inside `anyOfResponses`).
 - `getSseSchemaByEventName(contract)`: extracts SSE event schemas, or `null` when none are present.

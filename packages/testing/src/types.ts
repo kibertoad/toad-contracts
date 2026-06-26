@@ -28,16 +28,18 @@ export type SseMockEventInput<S extends SseSchemaByEventName> = {
 
 /**
  * Serializes a list of SSE events into a `text/event-stream` body. Each event becomes an
- * `event:`/`data:` pair; a blank line separates events, matching the SSE wire format.
+ * `event:`/`data:` pair terminated by a blank line, matching the SSE wire format. The trailing
+ * blank line after the final event is required: a spec-compliant client discards a trailing event
+ * that is not terminated by a blank line.
  *
  * @example
  * formatSseResponse([{ event: 'completed', data: { totalCount: 1 } }])
- * // "event: completed\ndata: {\"totalCount\":1}\n"
+ * // "event: completed\ndata: {\"totalCount\":1}\n\n"
  */
 export function formatSseResponse(events: SseMockEvent[]): string {
   return events
-    .map(({ event, data }) => `event: ${event}\ndata: ${JSON.stringify(data)}\n`)
-    .join("\n");
+    .map(({ event, data }) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join("");
 }
 
 // Maps a single responsesByStatusCode entry to the body field(s) the mock needs.

@@ -1,4 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { SseSchemaByEventName } from "@toad-contracts/core";
+import type { SseMockEvent } from "./types.ts";
 
 /**
  * Validates a mock response body through a Standard Schema and returns the parsed output (unknown
@@ -27,4 +29,31 @@ export function validateResponseBody(schema: StandardSchemaV1, value: unknown): 
   }
 
   return result.value;
+}
+
+/**
+ * Validates a single SSE event against the contract's `schemaByEventName` and returns the event
+ * with its `data` parsed (unknown properties stripped, transforms applied). Throws if the event
+ * name is not declared in the contract or its data does not satisfy the matching schema, so SSE
+ * payloads receive the same contract enforcement as JSON bodies.
+ */
+export function validateSseEvent(
+  schemaByEventName: SseSchemaByEventName,
+  event: SseMockEvent,
+): SseMockEvent {
+  const schema = schemaByEventName[event.event];
+
+  if (!schema) {
+    throw new Error(`Mock SSE event '${event.event}' is not declared in the contract's SSE schema`);
+  }
+
+  return { event: event.event, data: validateResponseBody(schema, event.data) };
+}
+
+/** Validates every SSE event in a list through {@link validateSseEvent}. */
+export function validateSseEvents(
+  schemaByEventName: SseSchemaByEventName,
+  events: SseMockEvent[],
+): SseMockEvent[] {
+  return events.map((event) => validateSseEvent(schemaByEventName, event));
 }

@@ -8,11 +8,11 @@ import {
   isSseResponse,
   isStreamResponse,
   isTextResponse,
+  resolveStatusEntry,
 } from "@toad-contracts/core";
 import type { Mockttp, RequestRuleBuilder } from "mockttp";
-import { resolveContractEntry } from "./resolveContractEntry.ts";
 import { formatSseResponse, type MockResponseParams } from "./types.ts";
-import { validateResponseBody } from "./validateResponseBody.ts";
+import { validateResponseBody, validateSseEvents } from "./validateResponseBody.ts";
 
 type HttpMethod = "get" | "delete" | "post" | "patch" | "put";
 
@@ -61,7 +61,7 @@ export class ApiContractMockttpHelper {
     const anyParams = params as any;
     const path = this.resolvePath(contract, anyParams.pathParams);
     const statusCode = anyParams.responseStatus;
-    const responseEntry = resolveContractEntry(contract.responsesByStatusCode, statusCode);
+    const responseEntry = resolveStatusEntry(contract.responsesByStatusCode, statusCode);
 
     if (!responseEntry) {
       throw new Error("Specified responseStatus cannot be mapped with contract");
@@ -96,7 +96,9 @@ export class ApiContractMockttpHelper {
     }
 
     if (isSseResponse(responseEntry)) {
-      const body = formatSseResponse(anyParams.events);
+      const body = formatSseResponse(
+        validateSseEvents(responseEntry.schemaByEventName, anyParams.events),
+      );
       await mockRule.thenReply(statusCode, body, {
         "content-type": "text/event-stream",
       });
@@ -114,7 +116,9 @@ export class ApiContractMockttpHelper {
           return {
             statusCode,
             headers: { "content-type": "text/event-stream" },
-            body: formatSseResponse(anyParams.events),
+            body: formatSseResponse(
+              validateSseEvents(sseEntry.schemaByEventName, anyParams.events),
+            ),
           };
         }
 

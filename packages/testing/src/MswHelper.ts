@@ -1,7 +1,6 @@
 import {
   type ApiContract,
   ContractNoBody,
-  type HttpStatusCode,
   type InferSchemaInput,
   type InferSseSuccessResponses,
   isAnyOfResponses,
@@ -12,13 +11,18 @@ import {
   isStreamResponse,
   isTextResponse,
   type RequestPathParamsSchema,
+  resolveStatusEntry,
   type SseSchemaByEventName,
+  type TypedSseResponse,
 } from "@toad-contracts/core";
 import { HttpResponse, http, type JsonBodyType } from "msw";
 import type { SetupServer } from "msw/node";
-import { resolveContractEntry } from "./resolveContractEntry.ts";
 import { formatSseResponse, type MockResponseParams, type SseMockEventInput } from "./types.ts";
-import { validateResponseBody } from "./validateResponseBody.ts";
+import {
+  validateResponseBody,
+  validateSseEvent,
+  validateSseEvents,
+} from "./validateResponseBody.ts";
 
 type HttpMethod = "get" | "delete" | "post" | "patch" | "put";
 
@@ -77,7 +81,7 @@ export class MswHelper {
     const anyParams = params as any;
     const url = this.resolvePath(contract, anyParams.pathParams);
     const statusCode = anyParams.responseStatus;
-    const responseEntry = resolveContractEntry(contract.responsesByStatusCode, statusCode);
+    const responseEntry = resolveStatusEntry(contract.responsesByStatusCode, statusCode);
 
     if (!responseEntry) {
       throw new Error("Specified responseStatus cannot be mapped with contract");
@@ -120,7 +124,9 @@ export class MswHelper {
     }
 
     if (isSseResponse(responseEntry)) {
-      const body = formatSseResponse(anyParams.events);
+      const body = formatSseResponse(
+        validateSseEvents(responseEntry.schemaByEventName, anyParams.events),
+      );
       server.use(
         http[method](
           url,
@@ -143,10 +149,13 @@ export class MswHelper {
           const accept = request.headers.get("accept") ?? "";
 
           if (accept.includes("text/event-stream") && sseEntry) {
-            return new HttpResponse(formatSseResponse(anyParams.events), {
-              status: statusCode,
-              headers: { "content-type": "text/event-stream" },
-            });
+            return new HttpResponse(
+              formatSseResponse(validateSseEvents(sseEntry.schemaByEventName, anyParams.events)),
+              {
+                status: statusCode,
+                headers: { "content-type": "text/event-stream" },
+              },
+            );
           }
 
           if (jsonEntry) {
@@ -190,17 +199,18 @@ export class MswHelper {
     const status = params?.responseCode ?? 200;
     const encoder = new TextEncoder();
 
-    let streamController: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        streamController = controller;
-      },
-    });
+    // Each request gets its own ReadableStream (a stream can only be consumed once); `emit`/`close`
+    // fan out to every connection opened against this handler.
+    const controllers = new Set<ReadableStreamDefaultController<Uint8Array>>();
 
-    const successEntry = resolveContractEntry(
-      contract.responsesByStatusCode,
-      status as HttpStatusCode,
-    );
+    const successEntry = resolveStatusEntry(contract.responsesByStatusCode, status);
+    const sseEntry: TypedSseResponse | undefined = successEntry
+      ? isSseResponse(successEntry)
+        ? successEntry
+        : isAnyOfResponses(successEntry)
+          ? successEntry.responses.find(isSseResponse)
+          : undefined
+      : undefined;
     const jsonEntry =
       successEntry && isAnyOfResponses(successEntry)
         ? successEntry.responses.find(isJsonResponse)
@@ -218,6 +228,12 @@ export class MswHelper {
           }
         }
 
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controllers.add(controller);
+          },
+        });
+
         return new HttpResponse(stream, {
           status,
           headers: { "content-type": "text/event-stream" },
@@ -227,11 +243,18 @@ export class MswHelper {
 
     return {
       emit(event) {
-        const chunk = `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
-        streamController.enqueue(encoder.encode(chunk));
+        const validated = sseEntry ? validateSseEvent(sseEntry.schemaByEventName, event) : event;
+        const chunk = `event: ${validated.event}\ndata: ${JSON.stringify(validated.data)}\n\n`;
+        const bytes = encoder.encode(chunk);
+        for (const controller of controllers) {
+          controller.enqueue(bytes);
+        }
       },
       close() {
-        streamController.close();
+        for (const controller of controllers) {
+          controller.close();
+        }
+        controllers.clear();
       },
     };
   }

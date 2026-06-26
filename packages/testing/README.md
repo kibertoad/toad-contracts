@@ -188,5 +188,5 @@ A standalone helper for manual SSE body formatting:
 import { formatSseResponse } from "@toad-contracts/testing";
 
 const body = formatSseResponse([{ event: "completed", data: { totalCount: 1 } }]);
-// "event: completed\ndata: {\"totalCount\":1}\n"
+// "event: completed\ndata: {\"totalCount\":1}\n\n"
 ```

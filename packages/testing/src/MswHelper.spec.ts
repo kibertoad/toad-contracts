@@ -251,5 +251,60 @@ describe("MswHelper", () => {
       expect(response.headers.get("content-type")).toBe("text/event-stream");
       expect(countSseEvents(await response.text())).toBe(1);
     });
+
+    it("fans out events to multiple open connections", async () => {
+      const controller = helper.mockSseStream(sseGetApiContract, server);
+      const first = await fetch(url("/events/stream"));
+      const second = await fetch(url("/events/stream"));
+
+      controller.emit({ event: "completed", data: { totalCount: 1 } });
+      controller.close();
+
+      expect(countSseEvents(await first.text())).toBe(1);
+      expect(countSseEvents(await second.text())).toBe(1);
+    });
+
+    it("validates emitted event data against the contract schema", async () => {
+      const controller = helper.mockSseStream(sseGetApiContract, server);
+      await fetch(url("/events/stream"));
+
+      expect(() =>
+        // @ts-expect-error wrong data type for the completed event
+        controller.emit({ event: "completed", data: { totalCount: "nope" } }),
+      ).toThrow(/does not satisfy the contract schema/);
+      controller.close();
+    });
+  });
+
+  describe("mockResponse — SSE schema validation", () => {
+    it("strips unknown properties from SSE event data", async () => {
+      helper.mockResponse(sseGetApiContract, server, {
+        responseStatus: 200,
+        // @ts-expect-error extra property on event data
+        events: [{ event: "completed", data: { totalCount: 1, extra: "drop me" } }],
+      });
+      const response = await fetch(url("/events/stream"));
+      expect(await response.text()).not.toContain("drop me");
+    });
+
+    it("throws when SSE event data violates the contract schema", () => {
+      expect(() =>
+        helper.mockResponse(sseGetApiContract, server, {
+          responseStatus: 200,
+          // @ts-expect-error wrong data type
+          events: [{ event: "completed", data: { totalCount: "nope" } }],
+        }),
+      ).toThrow(/does not satisfy the contract schema/);
+    });
+
+    it("throws when an SSE event name is not declared in the contract", () => {
+      expect(() =>
+        helper.mockResponse(sseGetApiContract, server, {
+          responseStatus: 200,
+          // @ts-expect-error undeclared event name
+          events: [{ event: "unknown.event", data: { totalCount: 1 } }],
+        }),
+      ).toThrow(/not declared in the contract's SSE schema/);
+    });
   });
 });

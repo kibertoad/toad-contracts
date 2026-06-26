@@ -1,25 +1,26 @@
 {
-  "name": "@toad-contracts/valibot",
+  "name": "@toad-contracts/frontend-http-client",
   "version": "0.1.0",
   "private": false,
+  "description": "Opinionated wretch-based HTTP client driven by @toad-contracts standard-schema contracts",
   "keywords": [
     "api",
-    "backend",
+    "browser",
+    "client",
     "contract",
     "contracts",
     "frontend",
-    "single",
-    "source",
+    "http",
     "standard-schema",
-    "truth",
-    "valibot"
+    "typesafe",
+    "wretch"
   ],
   "homepage": "https://github.com/kibertoad/toad-contracts",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git://github.com/kibertoad/toad-contracts.git",
-    "directory": "packages/valibot"
+    "directory": "packages/frontend-http-client"
   },
   "files": [
     "dist"
@@ -44,19 +45,23 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@toad-contracts/core": "workspace:*"
+    "@standard-schema/spec": "^1.1.0",
+    "@toad-contracts/core": "workspace:*",
+    "fast-querystring": "^1.1.2",
+    "parse-sse": "^0.1.0"
   },
   "devDependencies": {
     "@lokalise/tsconfig": "^5.0.0",
-    "@standard-schema/spec": "^1.1.0",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
-    "rimraf": "^6.1.2",
+    "mockttp": "^4.4.2",
+    "rimraf": "^6.1.3",
     "typescript": "7.0.1-rc",
     "valibot": "^1.4.1",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "wretch": "^3.0.9"
   },
   "peerDependencies": {
-    "valibot": ">=1.0.0"
+    "wretch": "^3.0.0"
   }
 }

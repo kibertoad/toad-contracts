@@ -34,7 +34,7 @@ describe("MswHelper", () => {
   afterEach(() => server.resetHandlers());
   afterAll(() => server.close());
 
-  describe("mockResponse — REST contracts", () => {
+  describe("mockResponse: REST contracts", () => {
     it("mocks GET without path params", () => {
       helper.mockResponse(getApiContract, server, {
         responseStatus: 200,
@@ -114,7 +114,7 @@ describe("MswHelper", () => {
     });
   });
 
-  describe("mockResponse — range / default fallback", () => {
+  describe("mockResponse: range / default fallback", () => {
     it("resolves via range key", async () => {
       helper.mockResponse(getApiContractWith2xxRange, server, {
         responseStatus: 201,
@@ -145,7 +145,7 @@ describe("MswHelper", () => {
     });
   });
 
-  describe("mockResponse — SSE contracts", () => {
+  describe("mockResponse: SSE contracts", () => {
     it("mocks SSE-only GET response", async () => {
       helper.mockResponse(sseGetApiContract, server, {
         responseStatus: 200,
@@ -170,7 +170,7 @@ describe("MswHelper", () => {
     });
   });
 
-  describe("mockResponse — dual-mode contracts", () => {
+  describe("mockResponse: dual-mode contracts", () => {
     it("returns JSON when no SSE Accept header", async () => {
       helper.mockResponse(dualModeApiContract, server, {
         responseStatus: 200,
@@ -276,7 +276,7 @@ describe("MswHelper", () => {
     });
   });
 
-  describe("mockResponse — SSE schema validation", () => {
+  describe("mockResponse: SSE schema validation", () => {
     it("strips unknown properties from SSE event data", async () => {
       helper.mockResponse(sseGetApiContract, server, {
         responseStatus: 200,

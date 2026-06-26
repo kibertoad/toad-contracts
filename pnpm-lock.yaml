@@ -24,7 +24,7 @@ importers:
   packages/core:
     dependencies:
       '@standard-schema/spec':
-        specifier: ^1.0.0
+        specifier: ^1.1.0
         version: 1.1.0
     devDependencies:
       '@lokalise/tsconfig':
@@ -49,10 +49,53 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
 
+  packages/frontend-http-client:
+    dependencies:
+      '@standard-schema/spec':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@toad-contracts/core':
+        specifier: workspace:*
+        version: link:../core
+      fast-querystring:
+        specifier: ^1.1.2
+        version: 1.1.2
+      parse-sse:
+        specifier: ^0.1.0
+        version: 0.1.0
+    devDependencies:
+      '@lokalise/tsconfig':
+        specifier: ^5.0.0
+        version: 5.0.0
+      '@types/node':
+        specifier: ^25.9.3
+        version: 25.9.4
+      '@vitest/coverage-v8':
+        specifier: ^4.1.9
+        version: 4.1.9(vitest@4.1.9)
+      mockttp:
+        specifier: ^4.4.2
+        version: 4.4.2
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 7.0.1-rc
+        version: 7.0.1-rc
+      valibot:
+        specifier: ^1.4.1
+        version: 1.4.1(typescript@7.0.1-rc)
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
+      wretch:
+        specifier: ^3.0.9
+        version: 3.0.9
+
   packages/testing:
     dependencies:
       '@standard-schema/spec':
-        specifier: ^1.0.0
+        specifier: ^1.1.0
         version: 1.1.0
       '@toad-contracts/core':
         specifier: workspace:*
@@ -96,7 +139,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0
       '@standard-schema/spec':
-        specifier: ^1.0.0
+        specifier: ^1.1.0
         version: 1.1.0
       '@types/node':
         specifier: ^25.9.3
@@ -1276,12 +1319,18 @@ packages:
   extendable-error@0.1.7:
     resolution: {integrity: sha512-UOiS2in6/Q0FK0R0q6UY9vYpQ21mr/Qn1KOnte7vsACuNJf514WvCCUHSRCPcgjPT2bAhNIJdlE6bVap1GKmeg==}
 
+  fast-decode-uri-component@1.0.1:
+    resolution: {integrity: sha512-WKgKWg5eUxvRZGwW8FvfbaH7AXSh2cL+3j5fMGzUMCxWBJ3dV3a7Wz8y2f/uQ0e3B6WmodD3oS54jTQ9HVTIIg==}
+
   fast-glob@3.3.3:
     resolution: {integrity: sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg==}
     engines: {node: '>=8.6.0'}
 
   fast-json-patch@3.1.1:
     resolution: {integrity: sha512-vf6IHUX2SBcA+5/+4883dsIjpBTqmfBjmYiWK1savxQmFk4JfBMLa7ynTYOs1Rolp/T1betJxHiGD3g1Mn8lUQ==}
+
+  fast-querystring@1.1.2:
+    resolution: {integrity: sha512-g6KuKWmFXc0fID8WWH0jit4g0AGBoJhCkJMb1RmbsSEUNvQ+ZC8D6CUZ+GtF8nMzSPXnhiePyyqqipzNNEnHjg==}
 
   fast-string-truncated-width@3.0.3:
     resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
@@ -1810,6 +1859,10 @@ packages:
   parse-multipart-data@1.5.0:
     resolution: {integrity: sha512-ck5zaMF0ydjGfejNMnlo5YU2oJ+pT+80Jb1y4ybanT27j+zbVP/jkYmCrUGsEln0Ox/hZmuvgy8Ra7AxbXP2Mw==}
 
+  parse-sse@0.1.0:
+    resolution: {integrity: sha512-8bObUwtEuLp2Z1gP6iRVMBzmEqaU5ohmofa3WmZVFfFZFKRP/+c03y8NVYzzXmQMotQ6mDS5Mnyk6tT1gKOTcQ==}
+    engines: {node: '>=20'}
+
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
@@ -2293,6 +2346,10 @@ packages:
 
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
+
+  wretch@3.0.9:
+    resolution: {integrity: sha512-RXJQp5aOBfHQaDCLRyFXQooWDBOHrQxVgCH/6OFaFPBKjeUiXMQ3NV1b8qqI7CR+v4meVBWYs242P8n+rWRjzA==}
+    engines: {node: '>=22'}
 
   ws@8.21.0:
     resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
@@ -2778,9 +2835,9 @@ snapshots:
 
   '@peculiar/asn1-cms@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
-      '@peculiar/asn1-x509-attr': 2.6.1
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      '@peculiar/asn1-x509-attr': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
@@ -2794,15 +2851,15 @@ snapshots:
 
   '@peculiar/asn1-csr@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
   '@peculiar/asn1-ecc@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
@@ -2817,8 +2874,8 @@ snapshots:
 
   '@peculiar/asn1-pkcs8@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
@@ -2831,19 +2888,19 @@ snapshots:
 
   '@peculiar/asn1-pkcs9@2.6.1':
     dependencies:
-      '@peculiar/asn1-cms': 2.6.1
+      '@peculiar/asn1-cms': 2.8.0
       '@peculiar/asn1-pfx': 2.8.0
-      '@peculiar/asn1-pkcs8': 2.6.1
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
-      '@peculiar/asn1-x509-attr': 2.6.1
+      '@peculiar/asn1-pkcs8': 2.8.0
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      '@peculiar/asn1-x509-attr': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
   '@peculiar/asn1-rsa@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
@@ -2868,8 +2925,8 @@ snapshots:
 
   '@peculiar/asn1-x509-attr@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
       asn1js: 3.0.10
       tslib: 2.8.1
 
@@ -2882,7 +2939,7 @@ snapshots:
 
   '@peculiar/asn1-x509@2.6.1':
     dependencies:
-      '@peculiar/asn1-schema': 2.6.0
+      '@peculiar/asn1-schema': 2.8.0
       asn1js: 3.0.10
       pvtsutils: 1.3.6
       tslib: 2.8.1
@@ -2900,13 +2957,13 @@ snapshots:
 
   '@peculiar/x509@1.14.3':
     dependencies:
-      '@peculiar/asn1-cms': 2.6.1
+      '@peculiar/asn1-cms': 2.8.0
       '@peculiar/asn1-csr': 2.6.1
       '@peculiar/asn1-ecc': 2.6.1
       '@peculiar/asn1-pkcs9': 2.6.1
-      '@peculiar/asn1-rsa': 2.6.1
-      '@peculiar/asn1-schema': 2.6.0
-      '@peculiar/asn1-x509': 2.6.1
+      '@peculiar/asn1-rsa': 2.8.0
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
       pvtsutils: 1.3.6
       reflect-metadata: 0.2.2
       tslib: 2.8.1
@@ -3427,6 +3484,8 @@ snapshots:
 
   extendable-error@0.1.7: {}
 
+  fast-decode-uri-component@1.0.1: {}
+
   fast-glob@3.3.3:
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -3436,6 +3495,10 @@ snapshots:
       micromatch: 4.0.8
 
   fast-json-patch@3.1.1: {}
+
+  fast-querystring@1.1.2:
+    dependencies:
+      fast-decode-uri-component: 1.0.1
 
   fast-string-truncated-width@3.0.3: {}
 
@@ -4002,6 +4065,8 @@ snapshots:
 
   parse-multipart-data@1.5.0: {}
 
+  parse-sse@0.1.0: {}
+
   parseurl@1.3.3: {}
 
   path-exists@4.0.0: {}
@@ -4441,6 +4506,8 @@ snapshots:
       strip-ansi: 6.0.1
 
   wrappy@1.0.2: {}
+
+  wretch@3.0.9: {}
 
   ws@8.21.0: {}
 

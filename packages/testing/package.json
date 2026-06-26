@@ -46,7 +46,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@standard-schema/spec": "^1.0.0",
+    "@standard-schema/spec": "^1.1.0",
     "@toad-contracts/core": "workspace:*"
   },
   "devDependencies": {

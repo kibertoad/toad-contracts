@@ -255,7 +255,7 @@ const resolveByKind = (entry: TypedApiContractResponse): ResponseKind => {
  *   or `undefined` when the header is absent.
  * @param strict - When `true` (default), returns `null` if the `content-type` is absent or does
  *   not match the contract entry. When `false`, falls back to the entry's declared kind instead of
- *   returning `null` — only applies to single-entry responses; `anyOfResponses` always requires a
+ *   returning `null`. Only applies to single-entry responses; `anyOfResponses` always requires a
  *   content-type to disambiguate regardless of this flag.
  */
 export const resolveContractResponse = (
@@ -268,7 +268,7 @@ export const resolveContractResponse = (
   }
 
   if (isAnyOfResponses(schemaEntry)) {
-    // AnyOfResponses always requires content-type to disambiguate — strict mode has no effect here
+    // AnyOfResponses always requires content-type to disambiguate; strict mode has no effect here
     if (!contentType) {
       return null;
     }

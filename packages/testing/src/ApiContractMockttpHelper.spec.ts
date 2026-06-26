@@ -43,7 +43,7 @@ describe("ApiContractMockttpHelper", () => {
 
   const url = (path: string) => `${mockServer.url}${path}`;
 
-  describe("mockResponse — REST contracts", () => {
+  describe("mockResponse: REST contracts", () => {
     it("mocks GET without path params", async () => {
       await helper.mockResponse(getApiContract, { responseStatus: 200, responseJson: { id: "1" } });
       const response = await fetch(url("/"));
@@ -125,7 +125,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — SSE contracts", () => {
+  describe("mockResponse: SSE contracts", () => {
     it("mocks SSE-only GET response", async () => {
       await helper.mockResponse(sseGetApiContract, {
         responseStatus: 200,
@@ -159,7 +159,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — dual-mode contracts", () => {
+  describe("mockResponse: dual-mode contracts", () => {
     it("returns JSON when no SSE Accept header", async () => {
       await helper.mockResponse(dualModeApiContract, {
         responseStatus: 200,
@@ -203,7 +203,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — range / wildcard status key fallback", () => {
+  describe("mockResponse: range / wildcard status key fallback", () => {
     it("resolves response entry via range key when exact code is absent", async () => {
       await helper.mockResponse(getApiContractWith2xxRange, {
         responseStatus: 201,
@@ -243,7 +243,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — NoBodyResponse", () => {
+  describe("mockResponse: NoBodyResponse", () => {
     it("replies with no body for noBodyResponse() entry", async () => {
       await helper.mockResponse(deleteApiContractWithNoBodyResponse, { responseStatus: 204 });
       const response = await fetch(url("/no-body"), { method: "DELETE" });
@@ -251,7 +251,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — HTTP methods", () => {
+  describe("mockResponse: HTTP methods", () => {
     it("mocks PATCH request", async () => {
       await helper.mockResponse(patchApiContract, {
         responseStatus: 200,
@@ -274,7 +274,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — non-JSON response types", () => {
+  describe("mockResponse: non-JSON response types", () => {
     it("mocks text response", async () => {
       await helper.mockResponse(textResponseApiContract, {
         responseStatus: 200,
@@ -314,7 +314,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — error handling", () => {
+  describe("mockResponse: error handling", () => {
     it("throws when responseStatus cannot be mapped with contract", async () => {
       await expect(
         // @ts-expect-error testing runtime error path with status code not in contract
@@ -323,7 +323,7 @@ describe("ApiContractMockttpHelper", () => {
     });
   });
 
-  describe("mockResponse — extended range / wildcard status key fallback", () => {
+  describe("mockResponse: extended range / wildcard status key fallback", () => {
     it("resolves response entry via 4xx range key", async () => {
       await helper.mockResponse(getApiContractWith4xxRange, {
         responseStatus: 404,

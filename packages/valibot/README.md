@@ -5,7 +5,7 @@ The [valibot](https://valibot.dev) adapter for [`@toad-contracts/core`](../core)
 The core contract library is written against the vendor-neutral
 [Standard Schema](https://github.com/standard-schema/spec) interface, which valibot v1 implements.
 This package re-exports the entire core API and adds valibot-aware versions of the two helpers that
-need to read an object schema's keys — something the Standard Schema interface does not expose.
+need to read an object schema's keys, something the Standard Schema interface does not expose.
 
 `valibot` is a peer dependency.
 
@@ -16,7 +16,7 @@ pnpm add @toad-contracts/valibot valibot
 ## Usage
 
 Import everything from `@toad-contracts/valibot`. The full core surface (`defineApiContract`,
-response factories, inference types, client types, …) is re-exported unchanged. See the
+response factories, inference types, client types, and more) is re-exported unchanged. See the
 [`@toad-contracts/core` README](../core/README.md) for the complete reference.
 
 ```ts

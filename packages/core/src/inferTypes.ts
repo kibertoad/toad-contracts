@@ -96,9 +96,9 @@ export type HasAnyNonSseSuccessResponse<T extends ResponsesByStatusCode> =
 
 /**
  * Classifies a contract's response mode into one of three cases:
- * - 'dual'    — SSE + non-SSE success responses; caller chooses via streaming param
- * - 'sse'     — SSE-only success responses; always streams
- * - 'non-sse' — JSON / text / blob / stream / no-body; never streams
+ * - 'dual': SSE + non-SSE success responses; caller chooses via streaming param
+ * - 'sse': SSE-only success responses; always streams
+ * - 'non-sse': JSON / text / blob / stream / no-body; never streams
  */
 export type ContractResponseMode<T extends ResponsesByStatusCode> =
   HasAnySseSuccessResponse<T> extends true

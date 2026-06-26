@@ -32,7 +32,7 @@ export type KeysOfUnion<TUnion> = TUnion extends unknown ? keyof TUnion : never;
  * (Plain `Omit` collapses a union into a single object type of its common keys.)
  *
  * Keys are constrained to `KeysOfUnion` rather than `keyof TUnion`, so keys present
- * on only some union members can be omitted too — members without the key pass through unchanged.
+ * on only some union members can be omitted too; members without the key pass through unchanged.
  */
 export type DistributiveOmit<TUnion, TKeys extends KeysOfUnion<TUnion>> = TUnion extends unknown
   ? Omit<TUnion, TKeys>

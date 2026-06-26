@@ -23,6 +23,7 @@ response body through the contract's Standard Schema:
   - [mockResponse](#mockresponse-1)
   - [mockSseStream](#mockssestream)
 - [formatSseResponse](#formatsseresponse)
+- [validateResponseBody](#validateresponsebody)
 
 ## ApiContractMockttpHelper
 
@@ -189,4 +190,18 @@ import { formatSseResponse } from "@toad-contracts/testing";
 
 const body = formatSseResponse([{ event: "completed", data: { totalCount: 1 } }]);
 // "event: completed\ndata: {\"totalCount\":1}\n\n"
+```
+
+## validateResponseBody
+
+Validates a value against a Standard Schema and returns the parsed output (unknown keys stripped,
+transforms applied), the synchronous validation the mock helpers use internally. It is re-exported
+for tests that need the same check directly. A schema that validates asynchronously is unsupported
+and throws a `TypeError`, since the mock helpers buffer the body synchronously.
+
+```ts
+import { validateResponseBody } from "@toad-contracts/testing";
+import { object, string } from "valibot";
+
+validateResponseBody(object({ id: string() }), { id: "1", extra: "dropped" }); // { id: "1" }
 ```

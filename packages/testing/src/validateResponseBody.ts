@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { SseSchemaByEventName } from "@toad-contracts/core";
+import { type SseSchemaByEventName, validateSync } from "@toad-contracts/core";
 import type { SseMockEvent } from "./types.ts";
 
 /**
@@ -13,22 +13,7 @@ import type { SseMockEvent } from "./types.ts";
  * `[object Promise]` body.
  */
 export function validateResponseBody(schema: StandardSchemaV1, value: unknown): unknown {
-  const result = schema["~standard"].validate(value);
-
-  if (result instanceof Promise) {
-    throw new TypeError(
-      "Standard Schema validation returned a Promise. The mock helpers require synchronous " +
-        "validation; use a schema whose `~standard.validate` resolves synchronously.",
-    );
-  }
-
-  if (result.issues) {
-    throw new Error(
-      `Mock response body does not satisfy the contract schema: ${JSON.stringify(result.issues)}`,
-    );
-  }
-
-  return result.value;
+  return validateSync(schema, value);
 }
 
 /**

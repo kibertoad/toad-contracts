@@ -92,11 +92,12 @@ sseStreamToCallbacks(result.body, {
 `sendByApiContract(client, contract, params)` accepts, alongside the contract-derived request fields
 (`pathParams`, `queryParams`, `body`, `headers`, `pathPrefix`, `streaming`):
 
-- `captureAsError` — route declared non-2xx responses to `error` (default `true`).
-- `strictContentType` — require the response `content-type` to match the contract entry (default
+- `captureAsError`: route declared non-2xx responses to `error` (default `true`).
+- `strictContentType`: require the response `content-type` to match the contract entry (default
   `true`). When `false`, single-entry responses fall back to the entry's declared kind.
-- `signal` — an `AbortSignal` to cancel the in-flight request.
+- `signal`: an `AbortSignal` to cancel the in-flight request.
 
 Validation is performed through each schema's `~standard.validate`, so any Standard Schema
-implementation (valibot, zod 3.24+, arktype, …) works. A response body that fails validation rejects
-the returned promise with a `SchemaValidationError`.
+implementation (valibot, zod 3.24+, arktype, and others) works. A response body that fails
+validation rejects the returned promise with a `SchemaValidationError`. Request inputs (path params,
+query, body, headers) are validated against their contract schemas before the request is sent.

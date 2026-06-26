@@ -27,6 +27,6 @@ describe("validateResponseBody", () => {
       },
     };
 
-    expect(() => validateResponseBody(asyncSchema, {})).toThrow(/require synchronous/);
+    expect(() => validateResponseBody(asyncSchema, {})).toThrow(/requires synchronous/);
   });
 });

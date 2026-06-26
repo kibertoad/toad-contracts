@@ -418,7 +418,7 @@ describe("sendByApiContract", () => {
         },
       });
 
-      // count arrives as a string — the transform should turn it into a number
+      // count arrives as a string; the transform should turn it into a number
       const sseBody = 'event: tick\ndata: {"count":"42"}\n\n';
 
       await mockServer
@@ -691,6 +691,121 @@ describe("sendByApiContract", () => {
       });
 
       expect(contentTypeHeader).toBe("text/plain");
+    });
+  });
+
+  describe("request validation", () => {
+    it("validates the request body and throws before sending on schema mismatch", async () => {
+      const contract = defineApiContract({
+        method: "post",
+        pathResolver: () => "/items",
+        requestBodySchema: object({ name: string() }),
+        responsesByStatusCode: { 201: object({ id: number() }) },
+      });
+
+      const endpoint = await mockServer.forPost("/items").thenJson(201, { id: 1 });
+
+      await expect(
+        // @ts-expect-error name must be a string
+        sendByApiContract(buildClient(), contract, { body: { name: 123 } }),
+      ).rejects.toThrow(/does not satisfy the contract schema/);
+
+      expect((await endpoint.getSeenRequests()).length).toBe(0);
+    });
+
+    it("applies request query schema transforms before sending", async () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/products",
+        requestQuerySchema: object({
+          limit: pipe(
+            number(),
+            transform((n) => n * 2),
+          ),
+        }),
+        responsesByStatusCode: { 200: unknown() },
+      });
+
+      await mockServer.forGet("/products").withQuery({ limit: "10" }).thenJson(200, { ok: true });
+
+      const result = await sendByApiContract(buildClient(), contract, {
+        queryParams: { limit: 5 },
+      });
+
+      expect(result.result).toMatchObject({ body: { ok: true } });
+    });
+
+    it("sends a string body verbatim under a non-JSON content-type", async () => {
+      const contract = defineApiContract({
+        method: "post",
+        pathResolver: () => "/raw",
+        requestBodySchema: string(),
+        requestHeaderSchema: object({ "content-type": optional(string()) }),
+        responsesByStatusCode: { 200: unknown() },
+      });
+
+      let receivedBody: string | undefined;
+      await mockServer.forPost("/raw").thenCallback(async (req) => {
+        receivedBody = await req.body.getText();
+        return { statusCode: 200, headers: JSON_HEADERS, body: JSON.stringify({ ok: true }) };
+      });
+
+      await sendByApiContract(buildClient(), contract, {
+        body: "id,name\n1,Backpack",
+        headers: { "content-type": "text/csv" },
+      });
+
+      expect(receivedBody).toBe("id,name\n1,Backpack");
+    });
+
+    it("sends a POST with a ContractNoBody request body and no payload", async () => {
+      const contract = defineApiContract({
+        method: "post",
+        pathResolver: () => "/ping",
+        requestBodySchema: ContractNoBody,
+        responsesByStatusCode: { 204: ContractNoBody },
+      });
+
+      let receivedBody: string | undefined;
+      await mockServer.forPost("/ping").thenCallback(async (req) => {
+        receivedBody = await req.body.getText();
+        return { statusCode: 204 };
+      });
+
+      const result = await sendByApiContract(buildClient(), contract, {});
+
+      expect(result.result).toMatchObject({ statusCode: 204, body: null });
+      expect(receivedBody).toBe("");
+    });
+  });
+
+  describe("SSE error handling", () => {
+    it("throws a clear error when SSE event data is not valid JSON", async () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/events",
+        responsesByStatusCode: {
+          200: sseResponse({ update: object({ id: string() }) }),
+        },
+      });
+
+      const sseBody = "event: update\ndata: not-json\n\n";
+
+      await mockServer
+        .forGet("/events")
+        .withHeaders({ accept: "text/event-stream" })
+        .thenReply(200, sseBody, { "content-type": "text/event-stream" });
+
+      const response = await sendByApiContract(buildClient(), contract, {});
+
+      if (!response.result) throw new Error("Expected result");
+      const resultBody = response.result.body;
+
+      await expect(async () => {
+        for await (const _ of resultBody) {
+          // consume
+        }
+      }).rejects.toThrow(/Failed to parse data for SSE event "update" as JSON/);
     });
   });
 });

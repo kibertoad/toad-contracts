@@ -85,18 +85,18 @@ type InferClientResponseBody<T> = T extends typeof ContractNoBody
 
 /**
  * Structural shape every SSE event body shares (browser MessageEvent-aligned). Used to separate
- * SSE bodies from other async-iterable bodies — notably `ReadableStream<Uint8Array>` from
+ * SSE bodies from other async-iterable bodies, notably `ReadableStream<Uint8Array>` from
  * `streamResponse`, which is `AsyncIterable<Uint8Array>` and must stay on the non-SSE side.
  */
 type SseBodyShape = AsyncIterable<{ type: string; lastEventId: string }>;
 
 /**
- * Like InferClientResponseBody but returns only SSE bodies — non-SSE entries resolve to never.
+ * Like InferClientResponseBody but returns only SSE bodies; non-SSE entries resolve to never.
  */
 type SseInferClientResponseBody<T> = Extract<InferClientResponseBody<T>, SseBodyShape>;
 
 /**
- * Like InferClientResponseBody but returns only non-SSE bodies — SSE entries resolve to never.
+ * Like InferClientResponseBody but returns only non-SSE bodies; SSE entries resolve to never.
  */
 type NonSseInferClientResponseBody<T> = Exclude<InferClientResponseBody<T>, SseBodyShape>;
 
@@ -104,7 +104,7 @@ type NonSseInferClientResponseBody<T> = Exclude<InferClientResponseBody<T>, SseB
  * Builds a `{ statusCode, headers, body }` discriminated-union member, collapsing to `never` (which
  * drops the member from the surrounding union) when the resolved body is itself `never`. This
  * happens for a non-SSE success code viewed in SSE mode, or an SSE-only success code viewed in
- * non-SSE mode — without this guard the member would survive with an unusable `body: never`.
+ * non-SSE mode, without which the member would survive with an unusable `body: never`.
  */
 type ResponseEntry<TStatusCode, THeaders, TBody> = [TBody] extends [never]
   ? never
@@ -113,7 +113,7 @@ type ResponseEntry<TStatusCode, THeaders, TBody> = [TBody] extends [never]
 // Body helpers for non-'default' wildcard range keys (e.g. '2xx', '4xx', '5xx').
 // '2xx' maps to success mode (SSE-filtered or non-SSE-filtered); all other ranges use the full body
 // union because non-2xx range entries always land on the error side of captureAsError.
-// 'default' does not use these helpers — it inlines its own body logic in WildcardSseEntry /
+// 'default' does not use these helpers; it inlines its own body logic in WildcardSseEntry /
 // WildcardNonSseEntry, where the success half is still SSE/non-SSE filtered and the non-success
 // half uses the full body union.
 type WildcardSseBody<V, K extends WildcardStatusCodeKey> = K extends "2xx"
@@ -124,7 +124,7 @@ type WildcardNonSseBody<V, K extends WildcardStatusCodeKey> = K extends "2xx"
   ? NonSseInferClientResponseBody<V>
   : InferClientResponseBody<V>;
 
-// Exact status codes explicitly defined in the contract — these take precedence over range keys.
+// Exact status codes explicitly defined in the contract; these take precedence over range keys.
 type ExactStatusCodes<TApiContract extends ApiContract> =
   keyof TApiContract["responsesByStatusCode"] & HttpStatusCode;
 
@@ -134,7 +134,7 @@ type RangeStatusCodes<TApiContract extends ApiContract> = {
   [K in keyof TApiContract["responsesByStatusCode"] & HttpStatusCodeRange]: ExpandStatusRangeKey<K>;
 }[keyof TApiContract["responsesByStatusCode"] & HttpStatusCodeRange];
 
-// Status codes that fall through to 'default' — not claimed by any exact code or range key.
+// Status codes that fall through to 'default', not claimed by any exact code or range key.
 // Split into success/non-success so captureAsError typing stays accurate: success lands in
 // Either.result, non-success lands in Either.error.
 type DefaultSuccessStatusCodes<TApiContract extends ApiContract> = Exclude<

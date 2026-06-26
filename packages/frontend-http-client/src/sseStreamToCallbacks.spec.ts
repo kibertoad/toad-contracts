@@ -100,6 +100,47 @@ describe("sseStreamToCallbacks", () => {
     }
   });
 
+  it("awaits async event handlers and routes their rejection to onError", async () => {
+    const onError = vi.fn();
+    const onDone = vi.fn();
+
+    sseStreamToCallbacks(makeStream([updateEvent("1")]), {
+      onEvent: {
+        update: async () => {
+          await Promise.resolve();
+          throw new Error("handler failed");
+        },
+        done: vi.fn(),
+      },
+      onError,
+      onDone,
+    });
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith(new Error("handler failed"));
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("runs onDone only after async handlers settle", async () => {
+    const order: string[] = [];
+
+    sseStreamToCallbacks(makeStream([updateEvent("1")]), {
+      onEvent: {
+        update: async () => {
+          await Promise.resolve();
+          order.push("handler");
+        },
+        done: vi.fn(),
+      },
+      onDone: () => {
+        order.push("done");
+      },
+    });
+
+    await vi.waitFor(() => expect(order).toContain("done"));
+    expect(order).toEqual(["handler", "done"]);
+  });
+
   it("onEvent handlers receive the correct data type per event name", () => {
     expectTypeOf<SseEventCallbacks<TestEvent>["onEvent"]["update"]>().parameters.toEqualTypeOf<
       [{ id: string }]

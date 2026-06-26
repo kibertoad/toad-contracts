@@ -1,15 +1,16 @@
 # @toad-contracts/core
 
 API contracts are shared definitions that live in a shared package and are consumed by both the
-client and the backend. The contract describes a route — its path, HTTP method, and
-request/response schemas — and serves as the single source of truth for both sides.
+client and the backend. The contract describes a route (its path, HTTP method, and
+request/response schemas) and serves as the single source of truth for both sides.
 
 The backend implements the route against the contract. The client uses the same contract to make
 type-safe requests without duplicating configuration. This keeps documentation, validation, and
 types in sync across the boundary.
 
 Schemas are any [Standard Schema](https://github.com/standard-schema/spec) implementation
-([valibot](https://valibot.dev), [zod](https://zod.dev), [arktype](https://arktype.io), …). The
+([valibot](https://valibot.dev), [zod](https://zod.dev), [arktype](https://arktype.io), and others).
+The
 contract logic only depends on the `@standard-schema/spec` interface, not on a specific library.
 
 > Using valibot? Prefer [`@toad-contracts/valibot`](../valibot). It re-exports everything here and
@@ -188,51 +189,84 @@ describeApiContract(getUser, getKeys); // "GET /users/:userId"
 
 ## Type utilities
 
-- `InferNonSseSuccessResponses<T>` — TypeScript output type of all non-SSE 2xx responses. JSON
+- `InferNonSseSuccessResponses<T>`: TypeScript output type of all non-SSE 2xx responses. JSON
   schemas → `StandardSchemaV1.InferOutput<T>`, `textResponse` → `string`, `blobResponse` → `Blob`,
   `streamResponse` → `ReadableStream<Uint8Array>`, `ContractNoBody`/`NoBodyResponse` → `undefined`,
   `sseResponse` → `never` (excluded). `anyOfResponses` entries are unpacked before mapping.
-- `InferJsonSuccessResponses<T>` — union of Standard Schema types for all JSON 2xx entries.
-- `InferSseSuccessResponses<T>` — SSE event schema map type from a `responsesByStatusCode` map.
-- `HasAnySseSuccessResponse<T>`, `HasAnyJsonSuccessResponse<T>`, `HasAnyNonSseSuccessResponse<T>` —
+- `InferJsonSuccessResponses<T>`: union of Standard Schema types for all JSON 2xx entries.
+- `InferSseSuccessResponses<T>`: SSE event schema map type from a `responsesByStatusCode` map.
+- `HasAnySseSuccessResponse<T>`, `HasAnyJsonSuccessResponse<T>`, `HasAnyNonSseSuccessResponse<T>`:
   boolean checks over 2xx entries.
-- `ContractResponseMode<T>` — `'dual'` (SSE + non-SSE), `'sse'` (SSE-only), or `'non-sse'`.
-- `AvailableResponseModes<T>` — union of `'json' | 'sse' | 'blob' | 'text' | 'stream' | 'noContent'`.
-- `SseEventOf<S>` — discriminated union of SSE events inferred from a `schemaByEventName` map,
+- `ContractResponseMode<T>`: `'dual'` (SSE + non-SSE), `'sse'` (SSE-only), or `'non-sse'`.
+- `AvailableResponseModes<T>`: union of `'json' | 'sse' | 'blob' | 'text' | 'stream' | 'noContent'`.
+- `SseEventOf<S>`: discriminated union of SSE events inferred from a `schemaByEventName` map,
   aligned with the browser `MessageEvent` shape: `{ type, data, lastEventId, retry }`.
 
 ## Client types
 
 Primarily consumed by HTTP client implementations.
 
-- `ClientRequestParams<TApiContract, TIsStreaming>` — infers the request parameter object
+- `ClientRequestParams<TApiContract, TIsStreaming>`: infers the request parameter object
   (`pathParams`, `body`, `queryParams`, `headers`, optional `pathPrefix`, and `streaming` for
   dual-mode contracts).
-- `InferSseClientResponse<TApiContract>` — discriminated union of `{ statusCode, headers, body }`
+- `InferSseClientResponse<TApiContract>`: discriminated union of `{ statusCode, headers, body }`
   for SSE mode. Exact 2xx codes and `'2xx'` yield `AsyncIterable<SseEventOf<...>>`.
-- `InferNonSseClientResponse<TApiContract>` — same shape for non-SSE mode. Exact 2xx codes and
+- `InferNonSseClientResponse<TApiContract>`: same shape for non-SSE mode. Exact 2xx codes and
   `'2xx'` yield JSON / `string` / `Blob` / `ReadableStream<Uint8Array>` / `null` (SSE excluded).
-- `DefaultStreaming<T>` — `true` for SSE-only contracts, `false` otherwise.
+- `DefaultStreaming<T>`: `true` for SSE-only contracts, `false` otherwise.
 
 ## Contract type aliases
 
-- `ApiContract` — union of all contract variants
+- `ApiContract`: union of all contract variants
   (`GetApiContract | DeleteApiContract | PayloadApiContract`).
-- `GetApiContract`, `DeleteApiContract`, `PayloadApiContract` — individual variants.
-- `RequestPathParamsSchema`, `RequestQuerySchema`, `RequestHeaderSchema`, `ResponseHeaderSchema` —
+- `GetApiContract`, `DeleteApiContract`, `PayloadApiContract`: individual variants.
+- `RequestPathParamsSchema`, `RequestQuerySchema`, `RequestHeaderSchema`, `ResponseHeaderSchema`:
   Standard Schema object-schema constraints for generic helpers.
-- `PathParamKeysResolver` — the `(schema) => keys` function `mapApiContractToPath` expects.
+- `PathParamKeysResolver`: the `(schema) => keys` function `mapApiContractToPath` expects.
 
 ## Utility functions
 
-- `mapApiContractToPath(contract, getPathParamKeys)` — Express/Fastify-style path pattern, e.g.
+- `mapApiContractToPath(contract, getPathParamKeys)`: Express/Fastify-style path pattern, e.g.
   `"/users/:userId"`.
-- `describeApiContract(contract, getPathParamKeys)` — human-readable `"METHOD /path"` string.
-- `hasAnySuccessSseResponse(contract)` — `true` when any 2xx entry is an SSE response (including
+- `describeApiContract(contract, getPathParamKeys)`: human-readable `"METHOD /path"` string.
+- `hasAnySuccessSseResponse(contract)`: `true` when any 2xx entry is an SSE response (including
   inside `anyOfResponses`).
-- `getSseSchemaByEventName(contract)` — extracts SSE event schemas, or `null` when none are present.
-- `resolveResponseEntry(...)` / `resolveContractResponse(...)` — resolve a status code + content-type
+- `getSseSchemaByEventName(contract)`: extracts SSE event schemas, or `null` when none are present.
+- `resolveResponseEntry(...)` / `resolveContractResponse(...)`: resolve a status code + content-type
   to a concrete `ResponseKind` (`'json' | 'text' | 'blob' | 'stream' | 'sse' | 'noContent'`).
+
+## Validation
+
+Vendor-neutral helpers for running a value through a Standard Schema, the equivalent of a schema
+library's `parse`. They back request and response validation in
+[`@toad-contracts/frontend-http-client`](../frontend-http-client) and the mock helpers in
+[`@toad-contracts/testing`](../testing), so every package validates the same way.
+
+- `validate(schema, value)`: async. Returns the parsed output (unknown keys stripped, transforms
+  applied), awaiting schemas whose `~standard.validate` resolves asynchronously. Throws
+  `SchemaValidationError` on failure.
+- `validateSync(schema, value)`: synchronous variant. Throws a `TypeError` when the schema validates
+  asynchronously, for callers that cannot await (e.g. buffered mock helpers).
+- `SchemaValidationError`: thrown on validation failure. Carries the raw
+  `StandardSchemaV1.Issue[]` in its `issues` property; accepts an optional custom message.
+
+```ts
+import { validate, validateSync, SchemaValidationError } from "@toad-contracts/core";
+import { object, string } from "valibot";
+
+const schema = object({ id: string() });
+
+await validate(schema, { id: "1", extra: "dropped" }); // -> { id: "1" }
+validateSync(schema, { id: "1" }); // -> { id: "1" }
+
+try {
+  await validate(schema, { id: 42 });
+} catch (error) {
+  if (error instanceof SchemaValidationError) {
+    console.error(error.issues);
+  }
+}
+```
 
 ## Module augmentation
 

@@ -24,7 +24,7 @@ importers:
   packages/core:
     dependencies:
       '@standard-schema/spec':
-        specifier: ^1.0.0
+        specifier: ^1.1.0
         version: 1.1.0
     devDependencies:
       '@lokalise/tsconfig':
@@ -95,7 +95,7 @@ importers:
   packages/testing:
     dependencies:
       '@standard-schema/spec':
-        specifier: ^1.0.0
+        specifier: ^1.1.0
         version: 1.1.0
       '@toad-contracts/core':
         specifier: workspace:*
@@ -139,7 +139,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0
       '@standard-schema/spec':
-        specifier: ^1.0.0
+        specifier: ^1.1.0
         version: 1.1.0
       '@types/node':
         specifier: ^25.9.3

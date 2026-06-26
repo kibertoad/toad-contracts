@@ -7,7 +7,7 @@ export type SseEventCallbacks<TEvent extends { type: string; data: unknown }> = 
   onError?: (error: unknown) => MaybePromise<void>;
   /**
    * Called once after the server closes the stream naturally (without error). Not called on
-   * aborted streams — `onError` is the signal for those.
+   * aborted streams; `onError` is the signal for those.
    */
   onDone?: () => MaybePromise<void>;
 };
@@ -49,9 +49,9 @@ export function sseStreamToCallbacks<TEvent extends { type: string; data: unknow
     try {
       for await (const event of stream) {
         const handler = callbacks.onEvent[event.type as TEvent["type"]];
-        handler(event.data);
+        await handler(event.data);
       }
-      callbacks.onDone?.();
+      await callbacks.onDone?.();
     } catch (err) {
       if (!callbacks.onError) {
         throw err;

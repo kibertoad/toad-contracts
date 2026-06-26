@@ -11,6 +11,7 @@ import type {
 } from "@toad-contracts/core";
 import {
   buildRequestPath,
+  ContractNoBody,
   hasAnySuccessSseResponse,
   resolveResponseEntry,
 } from "@toad-contracts/core";
@@ -125,7 +126,14 @@ async function* parseSseStream(
       throw new Error(`Schema for event "${type}" not found.`);
     }
 
-    yield { type, data: await validate(schema, JSON.parse(data)), lastEventId, retry };
+    let parsedData: unknown;
+    try {
+      parsedData = JSON.parse(data);
+    } catch (cause) {
+      throw new Error(`Failed to parse data for SSE event "${type}" as JSON.`, { cause });
+    }
+
+    yield { type, data: await validate(schema, parsedData), lastEventId, retry };
   }
 }
 
@@ -178,9 +186,29 @@ export async function sendByApiContract<
   const captureAsError = params.captureAsError ?? true;
   const strictContentType = params.strictContentType ?? true;
 
-  const requestHeaders = new Headers((await resolveRequestHeaders(anyParams.headers)) ?? {});
+  // Validate request inputs against the contract's request schemas before sending, applying any
+  // declared transforms. Mirrors the response-side validation so a malformed request fails fast
+  // with a SchemaValidationError instead of reaching the server.
+  const resolvedHeaders = (await resolveRequestHeaders(anyParams.headers)) ?? {};
+  const validatedHeaders = apiContract.requestHeaderSchema
+    ? await validate(apiContract.requestHeaderSchema, resolvedHeaders)
+    : resolvedHeaders;
+  const validatedPathParams = apiContract.requestPathParamsSchema
+    ? await validate(apiContract.requestPathParamsSchema, anyParams.pathParams)
+    : anyParams.pathParams;
+  const validatedQueryParams = apiContract.requestQuerySchema
+    ? await validate(apiContract.requestQuerySchema, anyParams.queryParams)
+    : anyParams.queryParams;
+  const validatedBody =
+    anyParams.body !== undefined &&
+    apiContract.requestBodySchema &&
+    apiContract.requestBodySchema !== ContractNoBody
+      ? await validate(apiContract.requestBodySchema, anyParams.body)
+      : anyParams.body;
 
-  if (anyParams.body !== undefined && !requestHeaders.has("content-type")) {
+  const requestHeaders = new Headers((validatedHeaders as Record<string, string>) ?? {});
+
+  if (validatedBody !== undefined && !requestHeaders.has("content-type")) {
     requestHeaders.set("content-type", "application/json");
   }
 
@@ -195,12 +223,21 @@ export async function sendByApiContract<
   }
 
   const path = buildRequestPath(
-    apiContract.pathResolver(anyParams.pathParams),
+    apiContract.pathResolver(validatedPathParams),
     anyParams.pathPrefix,
   );
-  const queryString = anyParams.queryParams ? stringify(anyParams.queryParams) : "";
+  const queryString = validatedQueryParams
+    ? stringify(validatedQueryParams as Record<string, unknown>)
+    : "";
   const fullUrl = queryString ? `${path}?${queryString}` : path;
-  const bodyString = anyParams.body !== undefined ? JSON.stringify(anyParams.body) : undefined;
+  // Strings are sent verbatim so a non-JSON content-type (e.g. text/plain) keeps its raw payload;
+  // every other body is JSON-encoded.
+  const bodyString =
+    validatedBody === undefined
+      ? undefined
+      : typeof validatedBody === "string"
+        ? validatedBody
+        : JSON.stringify(validatedBody);
 
   // Middleware that clones the response for non-2xx statuses before wretch consumes the body
   // during WretchError creation, allowing contract-based body parsing even for error responses.
@@ -228,11 +265,6 @@ export async function sendByApiContract<
     } else {
       response = await wretchInstance[apiContract.method](bodyString).res();
     }
-    /* v8 ignore start */
-    if (clonedErrorResponse) {
-      clonedErrorResponse.body?.cancel();
-    }
-    /* v8 ignore stop */
   } catch (err) {
     if (!clonedErrorResponse) {
       throw err;
@@ -259,6 +291,11 @@ export async function sendByApiContract<
 
   const parsedBody = await parseBody(response, resolvedResponseEntry);
 
+  // Validate and transform the headers declared in responseHeaderSchema, then merge them over the
+  // full set so every raw response header stays accessible. This matches InferClientResponseHeaders,
+  // which keeps Record<string, string> for undeclared headers. responseHeaderSchema must be a
+  // permissive schema: a strict/exact object would reject the extra headers a real response always
+  // carries (date, content-length, and so on).
   const parsedHeaders = apiContract.responseHeaderSchema
     ? {
         ...normalizedHeaders,

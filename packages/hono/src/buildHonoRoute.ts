@@ -1,29 +1,7 @@
-import { type ApiContract, ContractNoBody } from "@toad-contracts/core";
+import { type ApiContract, ContractNoBody, mapApiContractToPath } from "@toad-contracts/core";
 import type { MiddlewareHandler } from "hono";
 import { contractValidator } from "./honoContractValidator.ts";
 import type { AnyHonoApp, BuildHonoRouteOptions, HonoContractHandler } from "./types.ts";
-
-/**
- * Derives the Hono route path from a contract by invoking its `pathResolver` with a `Proxy` that
- * returns a `:key` placeholder for each accessed param, e.g. turning `(p) => `/users/${p.userId}``
- * into `/users/:userId`. Runs once per route at registration, so it adds no per-request cost.
- *
- * Assumes `pathResolver` interpolates param values directly (the same assumption core's
- * `mapApiContractToPath` makes); a resolver that transforms a value (e.g. `encodeURIComponent`)
- * would corrupt the placeholder.
- */
-export const honoPathFromContract = (contract: ApiContract): string => {
-  if (!contract.requestPathParamsSchema) {
-    return contract.pathResolver(undefined);
-  }
-
-  const placeholders = new Proxy({}, { get: (_target, prop) => `:${String(prop)}` }) as Record<
-    string,
-    string
-  >;
-
-  return contract.pathResolver(placeholders);
-};
 
 /**
  * Mounts a contract on a Hono app as a fully typed, self-validating route. The HTTP method and path
@@ -46,7 +24,10 @@ export function buildHonoRoute<TApp extends AnyHonoApp, const TContract extends 
   handler: HonoContractHandler<TContract>,
   options: BuildHonoRouteOptions = {},
 ): TApp {
-  const path = honoPathFromContract(contract);
+  // Derives the Hono path (e.g. /users/:userId) from the contract via core's mapApiContractToPath,
+  // which reads the path-param keys through the schema's ObjectKeysCarrier surface (implemented by
+  // the schema-library adapter, e.g. @toad-contracts/valibot's withObjectKeys).
+  const path = mapApiContractToPath(contract);
 
   const middleware: MiddlewareHandler[] = [
     async (c, next) => {

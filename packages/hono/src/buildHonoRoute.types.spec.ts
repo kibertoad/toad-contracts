@@ -1,4 +1,5 @@
 import { defineApiContract } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { object, string } from "valibot";
 import { describe, expectTypeOf, it } from "vitest";
 import { buildHonoRouteHandler } from "./buildHonoRoute.ts";
@@ -6,7 +7,7 @@ import type { HonoContractHandler } from "./types.ts";
 
 const RESPONSE_BODY_SCHEMA = object({ name: string() });
 const REQUEST_BODY_SCHEMA = object({ id: string() });
-const PATH_PARAMS_SCHEMA = object({ userId: string() });
+const PATH_PARAMS_SCHEMA = withObjectKeys(object({ userId: string() }));
 const HEADERS_SCHEMA = object({ authorization: string() });
 
 const getContract = defineApiContract({

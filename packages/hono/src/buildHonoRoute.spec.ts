@@ -1,40 +1,18 @@
 import { ContractNoBody, defineApiContract, SchemaValidationError } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { Hono } from "hono";
 import { array, object, optional, pipe, string, transform } from "valibot";
 import { describe, expect, it } from "vitest";
-import { buildHonoRoute, buildHonoRouteHandler, honoPathFromContract } from "./buildHonoRoute.ts";
+import { buildHonoRoute, buildHonoRouteHandler } from "./buildHonoRoute.ts";
 import { requestByContract } from "./requestByContract.ts";
 
 const RESPONSE_BODY_SCHEMA = object({ name: string() });
 const REQUEST_BODY_SCHEMA = object({ id: string() });
-const PATH_PARAMS_SCHEMA = object({ userId: string() });
+const PATH_PARAMS_SCHEMA = withObjectKeys(object({ userId: string() }));
 const HEADERS_SCHEMA = object({ authorization: string() });
 const QUERY_SCHEMA = object({
   testIds: optional(array(string())),
   limit: optional(pipe(string(), transform(Number)), "10"),
-});
-
-describe("honoPathFromContract", () => {
-  it("returns the static path when there is no path-param schema", () => {
-    const contract = defineApiContract({
-      method: "get",
-      pathResolver: () => "/ping",
-      responsesByStatusCode: { 200: RESPONSE_BODY_SCHEMA },
-    });
-
-    expect(honoPathFromContract(contract)).toBe("/ping");
-  });
-
-  it("replaces path params with :placeholders", () => {
-    const contract = defineApiContract({
-      method: "get",
-      requestPathParamsSchema: object({ orgId: string(), userId: string() }),
-      pathResolver: ({ orgId, userId }) => `/orgs/${orgId}/users/${userId}`,
-      responsesByStatusCode: { 200: RESPONSE_BODY_SCHEMA },
-    });
-
-    expect(honoPathFromContract(contract)).toBe("/orgs/:orgId/users/:userId");
-  });
 });
 
 describe("buildHonoRoute", () => {

@@ -8,11 +8,12 @@ import {
   streamResponse,
   textResponse,
 } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { array, literal, number, object, string } from "valibot";
 
 const RESPONSE_BODY_SCHEMA = object({ id: string() });
 const REQUEST_BODY_SCHEMA = object({ name: string() });
-const PATH_PARAMS_SCHEMA = object({ userId: string() });
+const PATH_PARAMS_SCHEMA = withObjectKeys(object({ userId: string() }));
 const QUERY_PARAMS_SCHEMA = object({ yearFrom: number() });
 const SSE_ITEM_SCHEMA = object({ items: array(object({ id: string() })) });
 const SSE_COMPLETED_SCHEMA = object({ totalCount: number() });

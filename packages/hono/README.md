@@ -38,9 +38,16 @@ request schema (path params, query, headers, body). The handler is typed from th
 - the return value is constrained to the contract's `responsesByStatusCode`, so `c.json(body, status)`
   is checked against the declared body and status.
 
+Path-param schemas must be wrapped with `withObjectKeys` from `@toad-contracts/valibot` (or your
+schema adapter's equivalent). Core needs the path-param field names to build the route path, and the
+Standard Schema interface does not expose object keys; the adapter supplies that capability. Query,
+header and body schemas need no wrapping.
+
 ```ts
 import { buildHonoRoute } from "@toad-contracts/hono";
 import { defineApiContract, ContractNoBody } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
+import { object, string } from "valibot";
 import { Hono } from "hono";
 
 const app = new Hono();
@@ -50,7 +57,7 @@ buildHonoRoute(
   app,
   defineApiContract({
     method: "get",
-    requestPathParamsSchema: PATH_PARAMS_SCHEMA,
+    requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
     requestQuerySchema: QUERY_SCHEMA,
     pathResolver: ({ userId }) => `/users/${userId}`,
     responsesByStatusCode: { 200: RESPONSE_BODY_SCHEMA },
@@ -82,7 +89,7 @@ buildHonoRoute(
   app,
   defineApiContract({
     method: "delete",
-    requestPathParamsSchema: PATH_PARAMS_SCHEMA,
+    requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
     pathResolver: ({ userId }) => `/users/${userId}`,
     responsesByStatusCode: { 204: ContractNoBody },
   }),
@@ -90,10 +97,9 @@ buildHonoRoute(
 );
 ```
 
-The route path is derived by calling the contract's `pathResolver` with placeholder params, so a
-resolver that builds `/users/<userId>` becomes the Hono path `/users/:userId`. This assumes
-`pathResolver` interpolates param values directly; a resolver that transforms a value (e.g.
-`encodeURIComponent`) would corrupt the placeholder.
+The route path is derived from the contract via core's `mapApiContractToPath`, which reads the
+path-param keys through the schema's adapter-supplied object-key surface and replaces each with a
+`:placeholder`, so `(p) => /users/${p.userId}` becomes the Hono path `/users/:userId`.
 
 ### `buildHonoRouteHandler`
 

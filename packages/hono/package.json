@@ -49,6 +49,7 @@
   },
   "devDependencies": {
     "@lokalise/tsconfig": "^5.0.0",
+    "@toad-contracts/valibot": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "hono": "^4.12.27",

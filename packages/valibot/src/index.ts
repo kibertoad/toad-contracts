@@ -1,45 +1,43 @@
 export * from "@toad-contracts/core";
 
-import {
-  type ApiContract,
-  describeApiContract as coreDescribeApiContract,
-  mapApiContractToPath as coreMapApiContractToPath,
-  type RequestObjectSchema,
-} from "@toad-contracts/core";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { ObjectKeysCarrier } from "@toad-contracts/core";
 
 /**
- * Lists the keys of a valibot object schema. Valibot exposes them via `.entries`, which is the
- * object-shape introspection the vendor-neutral Standard Schema interface does not provide.
+ * Augments a valibot object schema with the object-key introspection that core needs for path-param
+ * schemas (core's {@link ObjectKeysCarrier} surface). Valibot exposes the keys via `.entries`, which
+ * the vendor-neutral Standard Schema interface does not provide; this adapter implements core's
+ * interface so core stays free of any schema-library specifics.
+ *
+ * Wrap the `requestPathParamsSchema` of a contract with it:
+ *
+ * ```ts
+ * defineApiContract({
+ *   method: "get",
+ *   requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+ *   pathResolver: ({ userId }) => `/users/${userId}`,
+ *   responsesByStatusCode: { 200: RESPONSE_SCHEMA },
+ * })
+ * ```
  *
  * Only plain object schemas (`object`, `strictObject`, `looseObject`, `objectWithRest`) expose
  * `.entries`. A wrapped schema such as `pipe(object(...), ...)` or a non-object schema does not, so
- * we throw an actionable error instead of letting `Object.keys(undefined)` fail cryptically.
+ * this throws an actionable error instead of silently producing a route with no path params.
  */
-const getValibotPathParamKeys = (schema: RequestObjectSchema): string[] => {
+export const withObjectKeys = <TSchema extends StandardSchemaV1>(
+  schema: TSchema,
+): TSchema & ObjectKeysCarrier => {
   const entries = (schema as { entries?: Record<string, unknown> }).entries;
 
   if (entries === null || typeof entries !== "object") {
     throw new TypeError(
-      "requestPathParamsSchema must be a valibot object schema exposing `.entries` (e.g. " +
-        "object({ ... })). Wrapped schemas like pipe(object(...), ...) do not expose object keys " +
-        "and cannot be used for path-param mapping.",
+      "withObjectKeys expects a valibot object schema exposing `.entries` (e.g. object({ ... })). " +
+        "Wrapped schemas like pipe(object(...), ...) and non-object schemas do not expose object " +
+        "keys and cannot be used for path-param mapping.",
     );
   }
 
-  return Object.keys(entries);
+  const keys = Object.keys(entries);
+
+  return Object.assign(schema, { getObjectKeys: (): readonly string[] => keys });
 };
-
-/**
- * Builds the route's path pattern, replacing each path param with a `:key` placeholder.
- * Drop-in single-argument form of {@link coreMapApiContractToPath}, pre-wired to read the keys of
- * valibot object schemas.
- */
-export const mapApiContractToPath = (routeConfig: ApiContract): string =>
-  coreMapApiContractToPath(routeConfig, getValibotPathParamKeys);
-
-/**
- * Human-readable `"METHOD /path"` description of a contract. Drop-in single-argument form of
- * {@link coreDescribeApiContract}, pre-wired to read the keys of valibot object schemas.
- */
-export const describeApiContract = (routeConfig: ApiContract): string =>
-  coreDescribeApiContract(routeConfig, getValibotPathParamKeys);

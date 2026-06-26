@@ -1,4 +1,4 @@
-export { buildHonoRoute, buildHonoRouteHandler, honoPathFromContract } from "./buildHonoRoute.ts";
+export { buildHonoRoute, buildHonoRouteHandler } from "./buildHonoRoute.ts";
 export { requestByContract } from "./requestByContract.ts";
 export type {
   BuildHonoRouteOptions,

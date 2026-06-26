@@ -16,26 +16,26 @@ import type { DistributiveOmit, Exactly } from "./typeUtils.ts";
 
 /**
  * Structural constraint for request/response schemas that describe an object shape.
- *
- * The Standard Schema spec is validation-only and does not expose the object's keys, so the core
- * cannot introspect the path-param field names on its own. {@link mapApiContractToPath} therefore
- * takes a {@link PathParamKeysResolver} that knows how to list a schema's keys for the concrete
- * schema library in use (e.g. the `@toad-contracts/valibot` adapter reads valibot's `.entries`).
- * Precise per-field inference is preserved at call sites because {@link defineApiContract} captures
- * the concrete schema type.
  */
 export type RequestObjectSchema = StandardSchemaV1;
 
-export type RequestPathParamsSchema = RequestObjectSchema;
+/**
+ * The capability, beyond Standard Schema, that core needs from a path-params schema: a way to list
+ * its object-property keys, which the Standard Schema spec does not expose. Schema-library adapters
+ * implement this on the schemas they produce (e.g. `@toad-contracts/valibot`'s `withObjectKeys`
+ * reads valibot's `.entries`). Core depends only on this interface and never on a concrete schema
+ * library, so the dependency is inverted: adapters satisfy core's contract, not the other way round.
+ */
+export interface ObjectKeysCarrier {
+  /** Lists the schema's object-property keys. */
+  readonly getObjectKeys: () => readonly string[];
+}
+
+/** A path-params schema: a Standard Schema that also carries object-key introspection. */
+export type RequestPathParamsSchema = RequestObjectSchema & ObjectKeysCarrier;
 export type RequestQuerySchema = RequestObjectSchema;
 export type RequestHeaderSchema = RequestObjectSchema;
 export type ResponseHeaderSchema = RequestObjectSchema;
-
-/**
- * Lists the object-property keys of a request schema. Supplied by the schema-library adapter,
- * since the Standard Schema interface does not expose object keys at runtime.
- */
-export type PathParamKeysResolver = (schema: RequestObjectSchema) => readonly string[];
 
 export type CommonApiContract = {
   // oxlint-disable-next-line typescript/no-explicit-any -- required for compatibility with generics
@@ -86,40 +86,29 @@ export const defineApiContract = <
 ): TContract => contract;
 
 /**
- * Builds the route's path pattern, replacing each path param with a `:key` placeholder.
- *
- * @param getPathParamKeys - Lists the path-param schema's object keys. Required because the Standard
- *   Schema interface does not expose object keys; the schema-library adapter supplies it.
+ * Builds the route's path pattern, replacing each path param with a `:key` placeholder. The keys are
+ * read through the schema's {@link ObjectKeysCarrier} surface, which the schema-library adapter
+ * implements, so core needs no knowledge of the concrete schema library.
  */
-export const mapApiContractToPath = (
-  routeConfig: ApiContract,
-  getPathParamKeys: PathParamKeysResolver,
-): string => {
+export const mapApiContractToPath = (routeConfig: ApiContract): string => {
   if (!routeConfig.requestPathParamsSchema) {
     return routeConfig.pathResolver(undefined);
   }
 
-  const resolverParams = getPathParamKeys(routeConfig.requestPathParamsSchema).reduce<
-    Record<string, string>
-  >((acc, key) => {
-    acc[key] = `:${key}`;
+  const resolverParams = routeConfig.requestPathParamsSchema
+    .getObjectKeys()
+    .reduce<Record<string, string>>((acc, key) => {
+      acc[key] = `:${key}`;
 
-    return acc;
-  }, {});
+      return acc;
+    }, {});
 
   return routeConfig.pathResolver(resolverParams);
 };
 
-/**
- * Human-readable `"METHOD /path"` description of a contract.
- *
- * @param getPathParamKeys - See {@link mapApiContractToPath}.
- */
-export const describeApiContract = (
-  routeConfig: ApiContract,
-  getPathParamKeys: PathParamKeysResolver,
-): string => {
-  return `${routeConfig.method.toUpperCase()} ${mapApiContractToPath(routeConfig, getPathParamKeys)}`;
+/** Human-readable `"METHOD /path"` description of a contract. */
+export const describeApiContract = (routeConfig: ApiContract): string => {
+  return `${routeConfig.method.toUpperCase()} ${mapApiContractToPath(routeConfig)}`;
 };
 
 export const getSseSchemaByEventName = (routeConfig: ApiContract): SseSchemaByEventName | null => {

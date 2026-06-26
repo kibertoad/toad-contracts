@@ -1,4 +1,5 @@
 import { defineApiContract } from "@toad-contracts/core";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { Hono } from "hono";
 import { array, object, optional, string } from "valibot";
 import { describe, expect, it } from "vitest";
@@ -11,7 +12,7 @@ describe("requestByContract", () => {
   it("builds path, query (incl. arrays) and forwards them to the app", async () => {
     const contract = defineApiContract({
       method: "get",
-      requestPathParamsSchema: object({ userId: string() }),
+      requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
       requestQuerySchema: object({ tags: optional(array(string())), q: optional(string()) }),
       pathResolver: ({ userId }) => `/users/${userId}`,
       responsesByStatusCode: { 200: RESPONSE_BODY_SCHEMA },

@@ -195,39 +195,112 @@ The shared takeaway: **listing an object's keys is universal and already impleme
 is simply unstandardized.** Lifting it into the spec replaces three private spellings with one public
 contract.
 
-## Proposed shape (non-normative)
+## Proposed spec extension
 
-A minimal, optional, opt-in addition under the existing `~standard` namespace — the same place
-`vendor` and `version` already live. Sketch only, to anchor discussion:
+The spec already extends itself in exactly the way this proposal needs. The current
+[`@standard-schema/spec`](https://github.com/standard-schema/standard-schema/tree/main/packages/spec)
+defines a base `StandardTypedV1` (carrying `version` / `vendor` / `types`) and then layers optional
+capabilities on top as **sibling interfaces** that each declare their own `"~standard"` properties:
+`StandardSchemaV1` adds `validate`, and `StandardJSONSchemaV1` adds a `jsonSchema` converter. A
+schema library opts into a capability by *also* satisfying its interface; a consumer feature-detects
+by checking for the member.
+
+This proposal adds one more sibling in that same mold: **`StandardObjectKeysV1`**. The shape mirrors
+`StandardJSONSchemaV1` deliberately — including the input/output split, since a schema's declared
+input keys and its post-transform output keys can differ — so it slots into the existing package
+without inventing new conventions:
 
 ```ts
-interface StandardSchemaV1ObjectKeys {
-  readonly "~standard": {
-    // ...existing version / vendor / validate / types...
-
-    /**
-     * For schemas that describe an object shape, lists the declared property keys.
-     * Absent (or returning `undefined`) for schemas that are not object schemas.
-     */
-    readonly objectKeys?: () => readonly string[];
-  };
+/** The Standard Object Keys interface. */
+export interface StandardObjectKeysV1<Input = unknown, Output = Input> {
+  /** The Standard Object Keys properties. */
+  readonly "~standard": StandardObjectKeysV1.Props<Input, Output>;
 }
+
+export declare namespace StandardObjectKeysV1 {
+  /** The Standard Object Keys properties interface. */
+  export interface Props<Input = unknown, Output = Input>
+    extends StandardTypedV1.Props<Input, Output> {
+    /** Methods for listing the input/output object keys. */
+    readonly objectKeys: StandardObjectKeysV1.Lister;
+  }
+
+  /** The Standard Object Keys lister interface. */
+  export interface Lister {
+    /** Lists the declared keys of the input object shape. May throw if the schema does not describe an object. */
+    readonly input: (
+      options?: StandardObjectKeysV1.Options | undefined,
+    ) => ReadonlyArray<string>;
+    /** Lists the declared keys of the output object shape. May throw if the schema does not describe an object. */
+    readonly output: (
+      options?: StandardObjectKeysV1.Options | undefined,
+    ) => ReadonlyArray<string>;
+  }
+
+  /** The options for the input/output methods. */
+  export interface Options {
+    /** Explicit support for additional vendor-specific parameters, if needed. */
+    readonly libraryOptions?: Record<string, unknown> | undefined;
+  }
+
+  /** The Standard types interface. */
+  export interface Types<Input = unknown, Output = Input>
+    extends StandardTypedV1.Types<Input, Output> {}
+
+  /** Infers the input type of a Standard. */
+  export type InferInput<Schema extends StandardTypedV1> =
+    StandardTypedV1.InferInput<Schema>;
+
+  /** Infers the output type of a Standard. */
+  export type InferOutput<Schema extends StandardTypedV1> =
+    StandardTypedV1.InferOutput<Schema>;
+}
+```
+
+A drop-in copy of this extension, formatted to match the spec package's `src/index.ts`, lives
+alongside this proposal at
+[`object-keys-spec-extension.ts`](./object-keys-spec-extension.ts).
+
+### How libraries implement it
+
+Each library already has the data; satisfying the interface is a thin wrapper. Valibot, for example:
+
+```ts
+import type { StandardObjectKeysV1 } from "@standard-schema/spec";
+
+const keys = Object.keys(object({ userId: string(), orgId: string() }).entries);
+const objectKeys: StandardObjectKeysV1.Lister = {
+  input: () => keys,
+  output: () => keys, // valibot strips unknowns but keeps declared keys
+};
+```
+
+### How consumers use it
+
+Consumers feature-detect on the `objectKeys` member — the same pattern they already use to tell a
+plain `StandardSchemaV1` from a `StandardJSONSchemaV1`:
+
+```ts
+const hasObjectKeys = (
+  schema: StandardSchemaV1,
+): schema is StandardSchemaV1 & StandardObjectKeysV1 =>
+  "objectKeys" in schema["~standard"];
 ```
 
 Design intent:
 
-- **Optional and additive.** Non-object schemas (and libraries that haven't adopted it) simply omit
-  `objectKeys`; nothing about existing schemas breaks. Consumers feature-detect, exactly as they
-  would any optional capability.
-- **Keys only.** Returns the declared top-level property names — no nested schemas, no value types.
-  That keeps the surface trivial for every library to implement (each already has the data) and
-  trivial for consumers to reason about.
-- **Mirrors today's `ObjectKeysCarrier`.** It is the same one-method idea toad-contracts already
-  ships, promoted from a bolt-on interface to a first-class, vendor-neutral member — so adapters stop
-  re-deriving it.
+- **Optional and additive.** It is a separate interface, exactly like `StandardJSONSchemaV1`. Nothing
+  about existing schemas changes; non-object schemas and non-adopting libraries simply don't satisfy
+  it, and `validate` is untouched.
+- **Keys only.** Returns declared top-level property names — no nested schemas, no value types. Every
+  library already has this, so implementation is trivial and consumer semantics are obvious.
+- **Consistent with the spec's own precedent.** Same `"~standard"` namespace, same `Props`/`Types`/
+  `InferInput`/`InferOutput` boilerplate, same input/output split as `StandardJSONSchemaV1`.
+- **Mirrors today's `ObjectKeysCarrier`.** The same one-method idea toad-contracts already ships,
+  promoted from a bolt-on interface to a first-class, vendor-neutral spec extension.
 
-The exact name, namespacing, and whether it returns keys vs. a richer descriptor are open for the
-spec authors; this proposal argues for the *capability*, not a final signature.
+The exact name and whether the lister exposes `input`/`output` or a single accessor are open for the
+spec authors; this proposal argues for the *capability* and offers a faithful, spec-formatted shape.
 
 ## Drawbacks and alternatives
 
@@ -247,9 +320,10 @@ spec authors; this proposal argues for the *capability*, not a final signature.
 
 If adopted, the gap that motivated `ObjectKeysCarrier` disappears:
 
-- `mapApiContractToPath` calls `schema["~standard"].objectKeys?.()` directly — no bespoke interface.
-- `RequestPathParamsSchema` drops the `& ObjectKeysCarrier` intersection and is just a Standard
-  Schema again.
+- `mapApiContractToPath` reads keys via `schema["~standard"].objectKeys.input()` directly — no
+  bespoke interface.
+- `RequestPathParamsSchema` drops the `& ObjectKeysCarrier` intersection and becomes
+  `StandardSchemaV1 & StandardObjectKeysV1`, expressed entirely in spec types.
 - `@toad-contracts/valibot`'s `withObjectKeys` wrapper — and the analogous wrapper every other
   adapter would otherwise need — is deleted. Authors stop wrapping their path-param schemas.
 

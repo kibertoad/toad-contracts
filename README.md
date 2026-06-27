@@ -10,6 +10,9 @@ API contracts.
   Works with any Standard Schema implementation (valibot, zod, arktype, and others).
 - [`@toad-contracts/valibot`](./packages/valibot): a thin valibot adapter. Re-exports the whole
   core API and pre-wires path mapping to read valibot object schemas.
+- [`@toad-contracts/hono`](./packages/hono): a Hono adapter that mounts a contract as a fully typed,
+  self-validating route. The method, path, request validation, and handler types are derived from the
+  contract, and the consuming app's own `Env` (its `c.get(...)` variables) is threaded through.
 - [`@toad-contracts/frontend-http-client`](./packages/frontend-http-client): a wretch-based,
   type-safe HTTP client that executes a contract's request, validates the request inputs, and parses
   and validates responses against the contract's schemas, returning an inferred `Either`.

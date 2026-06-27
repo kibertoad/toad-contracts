@@ -44,8 +44,8 @@ describeApiContract(getUser); // "GET /users/:userId"
 
 ## What this package adds
 
-`withObjectKeys(schema)` is the only addition; everything else is a direct re-export from
-`@toad-contracts/core`.
+`withObjectKeys(schema)` and `withMessageType(schema)` are the only additions; everything else is a
+direct re-export from `@toad-contracts/core`.
 
 Core needs a contract's `requestPathParamsSchema` to expose its object keys to build the route path,
 which the Standard Schema interface does not provide. `withObjectKeys` attaches that capability
@@ -65,3 +65,18 @@ silently producing a route with no path params.
 The path-mapping helpers `mapApiContractToPath(contract)` and `describeApiContract(contract)` are
 re-exported from core unchanged and already single-argument; they read the keys through whatever
 `withObjectKeys` attached.
+
+`withMessageType(schema)` attaches `@toad-contracts/messages`' `MessageTypeCarrier` for message
+contracts, reading a field's `literal()` value through `.entries`:
+
+```ts
+import { withMessageType } from "@toad-contracts/valibot";
+import { literal, object, string } from "valibot";
+
+const schema = withMessageType(object({ type: literal("user.created"), id: string() }));
+schema.getMessageType(); // "user.created"
+```
+
+`getMessageType(fieldPath)` walks `.entries` along a dot-notation path (default `"type"`, e.g.
+`"detail.eventType"`) and returns the literal at the end, or `undefined` when the path is absent or
+the field is not a string literal. It composes with `withObjectKeys` on the same schema.

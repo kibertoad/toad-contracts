@@ -1,0 +1,62 @@
+{
+  "name": "@toad-contracts/arktype",
+  "version": "0.0.0",
+  "private": false,
+  "keywords": [
+    "api",
+    "arktype",
+    "backend",
+    "contract",
+    "contracts",
+    "frontend",
+    "single",
+    "source",
+    "standard-schema",
+    "truth"
+  ],
+  "homepage": "https://github.com/kibertoad/toad-contracts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/kibertoad/toad-contracts.git",
+    "directory": "packages/arktype"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "rimraf dist && tsc --project tsconfig.build.json",
+    "lint": "oxlint && oxfmt --check . && tsc",
+    "lint:fix": "oxlint --fix && oxfmt .",
+    "test": "vitest run",
+    "test:ci": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@toad-contracts/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@lokalise/tsconfig": "^5.0.0",
+    "@standard-schema/spec": "^1.1.0",
+    "@toad-contracts/messages": "workspace:*",
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.1.9",
+    "arktype": "^2.1.0",
+    "rimraf": "^6.1.2",
+    "typescript": "7.0.1-rc",
+    "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "arktype": ">=2.0.0"
+  }
+}

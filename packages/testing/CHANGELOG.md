@@ -1,5 +1,12 @@
 # @toad-contracts/testing
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [0674fb3]
+  - @toad-contracts/core@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes

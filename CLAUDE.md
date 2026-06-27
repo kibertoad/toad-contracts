@@ -6,6 +6,12 @@
   `@toad-contracts/valibot` (a thin valibot adapter that re-exports core). Keep core free of any
   schema-library runtime dependency; library-specific behavior belongs in an adapter.
 
+## Workflow
+
+- When finishing a new task while on the `main` branch, create a pull request automatically without
+  asking first. Branch off `main`, commit the work, push, and open the PR.
+- Only commit directly to `main` when explicitly asked to.
+
 ## Changesets
 
 - Every PR that changes published package code needs at least ONE changeset.

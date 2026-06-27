@@ -1,5 +1,11 @@
 # @toad-contracts/core
 
+## 0.3.1
+
+### Patch Changes
+
+- ef2489a: Remove the per-package `prepublishOnly` build. `ci:publish` already runs `turbo run build` in dependency order before `changeset publish`, so the `prepublishOnly` re-build (`rimraf dist && tsc`) was redundant and raced with concurrent publishing: when `@toad-contracts/core` ran its own `rimraf dist`, dependent packages' `tsc` failed with TS2307, leaving `valibot`, `frontend-http-client`, and `hono` unpublished.
+
 ## 0.3.0
 
 ### Minor Changes

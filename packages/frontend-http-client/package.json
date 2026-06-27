@@ -1,6 +1,6 @@
 {
   "name": "@toad-contracts/frontend-http-client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "description": "Opinionated wretch-based HTTP client driven by @toad-contracts standard-schema contracts",
   "keywords": [

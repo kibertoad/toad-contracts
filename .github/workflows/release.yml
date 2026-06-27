@@ -69,12 +69,15 @@ jobs:
           # Provenance is attested automatically from the same OIDC identity.
           NPM_CONFIG_PROVENANCE: 'true'
 
-      # Let the Release PR merge itself once required checks pass, so the
-      # version bump + publish run hands-off. Requires repo auto-merge enabled
-      # and a required status check on `main` (otherwise `--auto` is rejected).
-      - name: Enable auto-merge on the Release PR
+      # Merge the Release PR so the version bump + publish run hands-off. Prefer
+      # auto-merge (waits for required checks) but fall back to an immediate
+      # merge: `gh pr merge --auto` is rejected when the PR is already mergeable,
+      # which is the case here because `main` has no required status checks.
+      # Either path is attributed to RELEASE_TOKEN so the merge re-triggers this
+      # workflow's publish run.
+      - name: Merge the Release PR
         if: steps.changesets.outputs.pullRequestNumber != ''
-        run: gh pr merge --auto --squash "$PR_NUMBER"
+        run: gh pr merge --auto --squash "$PR_NUMBER" || gh pr merge --squash "$PR_NUMBER"
         env:
           # PAT here too: the auto-merge must be attributed to the PAT identity so
           # the merge push triggers the publish run. With GITHUB_TOKEN it merges

@@ -149,8 +149,8 @@ buildHonoRoute(app, contract, (c) => {
 ```
 
 For a handler defined away from its app (no instance to infer the env from), bind the env once with
-`honoContractRoutes<AppEnv>()`. It returns env-aware `buildHonoRoute`, `buildHonoRouteHandler`, and
-`requestByContract`:
+`honoContractRoutes<AppEnv>()`. It returns `buildHonoRoute` and `buildHonoRouteHandler` bound to the
+env, plus `requestByContract` re-exported unchanged for convenience:
 
 ```ts
 import { honoContractRoutes } from "@toad-contracts/hono";

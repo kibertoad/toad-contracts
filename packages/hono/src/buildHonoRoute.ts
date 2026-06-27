@@ -95,10 +95,10 @@ export function buildHonoRouteHandler<const TContract extends ApiContract>(
 }
 
 /**
- * Binds {@link buildHonoRoute} / {@link buildHonoRouteHandler} (and a convenience
- * {@link requestByContract}) to a consuming app's `Env`, so handlers defined separately from the app
- * still get `c.get(...)` typed for the app's own variables (e.g. `container`, `user`) in addition to
- * `c.get('apiContract')`.
+ * Binds {@link buildHonoRoute} and {@link buildHonoRouteHandler} to a consuming app's `Env`, so
+ * handlers defined separately from the app still get `c.get(...)` typed for the app's own variables
+ * (e.g. `container`, `user`) in addition to `c.get('apiContract')`. {@link requestByContract} is
+ * re-exported unchanged for convenience (it takes the app at call time, so it has no env to bind).
  *
  * Prefer the free {@link buildHonoRoute} with inline handlers when the `Hono<AppEnv>` app is in scope
  * at registration: its env is inferred automatically. Use this factory when a handler must be authored
@@ -110,9 +110,6 @@ export function buildHonoRouteHandler<const TContract extends ApiContract>(
  * const { buildHonoRoute, buildHonoRouteHandler } = honoContractRoutes<AppEnv>();
  */
 export function honoContractRoutes<TEnv extends Env = BlankEnv>() {
-  // The app is typed `Hono<TEnv, ...>`, so the free buildHonoRoute infers `EnvOf<app> = TEnv` and the
-  // factory's `TEnv`-typed handler matches its handler param exactly: no cast across the invariant
-  // `Context<E>` boundary is needed.
   function build<
     const TContract extends ApiContract,
     TSchema extends Schema = BlankSchema,
@@ -123,7 +120,15 @@ export function honoContractRoutes<TEnv extends Env = BlankEnv>() {
     handler: HonoContractHandler<TContract, TEnv>,
     options: BuildHonoRouteOptions = {},
   ): Hono<TEnv, TSchema, TBasePath> {
-    return buildHonoRoute(app, contract, handler, options);
+    // `EnvOf<Hono<TEnv, ...>>` reduces to `TEnv` for any concrete env, but its `any` guard is a
+    // conditional TS cannot resolve while `TEnv` is still generic here. The handler is already
+    // constrained to `TEnv` by this signature, so cast it across that unresolved boundary.
+    return buildHonoRoute(
+      app,
+      contract,
+      handler as HonoContractHandler<TContract, EnvOf<typeof app>>,
+      options,
+    );
   }
   function buildHandler<const TContract extends ApiContract>(
     _contract: TContract,

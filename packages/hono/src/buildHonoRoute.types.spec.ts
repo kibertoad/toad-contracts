@@ -1,10 +1,11 @@
 import { defineApiContract } from "@toad-contracts/core";
 import { withObjectKeys } from "@toad-contracts/valibot";
 import { Hono } from "hono";
+import type { BlankEnv } from "hono/types";
 import { object, string } from "valibot";
 import { describe, expectTypeOf, it } from "vitest";
 import { buildHonoRoute, buildHonoRouteHandler, honoContractRoutes } from "./buildHonoRoute.ts";
-import type { HonoContractHandler } from "./types.ts";
+import type { AnyHonoApp, EnvOf, HonoContractHandler } from "./types.ts";
 
 const RESPONSE_BODY_SCHEMA = object({ name: string() });
 const REQUEST_BODY_SCHEMA = object({ id: string() });
@@ -108,5 +109,21 @@ describe("env-aware contract handlers", () => {
     const blank = buildHonoRouteHandler(getContract, (c) => c.json({ name: "x" }, 200));
     // @ts-expect-error a BlankEnv handler is not assignable to an AppEnv-inferred route
     buildHonoRoute(app, getContract, blank);
+  });
+
+  it("recovers an app's env and falls back to BlankEnv for an any-typed app", () => {
+    expectTypeOf<EnvOf<Hono<AppEnv>>>().toEqualTypeOf<AppEnv>();
+    // AnyHonoApp is Hono<any, any, any>; EnvOf must not let `any` poison the handler env.
+    expectTypeOf<EnvOf<AnyHonoApp>>().toEqualTypeOf<BlankEnv>();
+  });
+
+  it("keeps apiContract typed and rejects unknown keys on an any-typed app (no collapse to any)", () => {
+    const app: AnyHonoApp = new Hono();
+    buildHonoRoute(app, getContract, (c) => {
+      expectTypeOf(c.get("apiContract")).toEqualTypeOf<typeof getContract>();
+      // @ts-expect-error EnvOf<AnyHonoApp> falls back to BlankEnv, so 'container' is not a variable
+      c.get("container");
+      return c.json({ name: "Frodo" }, 200);
+    });
   });
 });

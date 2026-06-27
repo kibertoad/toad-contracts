@@ -1,6 +1,6 @@
 {
   "name": "@toad-contracts/testing",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "description": "Testing utilities for mocking @toad-contracts HTTP responses with mockttp and msw",
   "keywords": [

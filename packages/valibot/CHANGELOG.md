@@ -1,5 +1,18 @@
 # @toad-contracts/valibot
 
+## 0.4.0
+
+### Minor Changes
+
+- 13703fe: Add `withMessageType`, which attaches `@toad-contracts/messages`' `MessageTypeCarrier` to a valibot
+  object schema by reading a field's `literal()` value through `.entries`. Composes with
+  `withObjectKeys` on the same schema.
+
+### Patch Changes
+
+- Updated dependencies [13703fe]
+  - @toad-contracts/messages@0.1.0
+
 ## 0.3.1
 
 ### Patch Changes

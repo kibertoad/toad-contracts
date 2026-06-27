@@ -180,12 +180,21 @@ correct regardless of the actual status code.
 single-argument.
 
 To build the pattern, core needs the path-param field names. The Standard Schema spec is
-validation-only and does not expose an object schema's keys at runtime, so core defines a small
-`ObjectKeysCarrier` interface and requires a `requestPathParamsSchema` to implement it:
+validation-only and does not expose an object schema's keys at runtime, so core ships
+`StandardObjectKeysV1` — a local copy of the [object-keys spec
+extension](../../docs/proposals/object-keys-introspection.md) — and requires a
+`requestPathParamsSchema` to implement it. It is the single object-key surface every adapter
+implements, shared with [`@toad-contracts/messages`](../messages) for message field introspection:
 
 ```ts
-export interface ObjectKeysCarrier {
-  getObjectKeys: () => readonly string[];
+export interface StandardObjectKeysV1 {
+  readonly "~standard": {
+    // ...the usual version/vendor/types, plus:
+    readonly objectKeys: {
+      readonly input: () => readonly string[];
+      readonly output: () => readonly string[];
+    };
+  };
 }
 ```
 
@@ -209,12 +218,13 @@ mapApiContractToPath(getUser); // "/users/:userId"
 describeApiContract(getUser); // "GET /users/:userId"
 ```
 
-Without an adapter, implement the interface yourself by attaching `getObjectKeys` to any Standard
-Schema:
+Without an adapter, implement the interface yourself by attaching an `objectKeys` lister to any
+Standard Schema's `~standard` properties:
 
 ```ts
-const pathParams = Object.assign(object({ userId: string() }), {
-  getObjectKeys: () => ["userId"],
+const schema = object({ userId: string() });
+Object.assign(schema["~standard"], {
+  objectKeys: { input: () => ["userId"], output: () => ["userId"] },
 });
 ```
 
@@ -253,9 +263,11 @@ Primarily consumed by HTTP client implementations.
 - `GetApiContract`, `DeleteApiContract`, `PayloadApiContract`: individual variants.
 - `RequestQuerySchema`, `RequestHeaderSchema`, `ResponseHeaderSchema`: Standard Schema object-schema
   constraints for generic helpers.
-- `RequestPathParamsSchema`: a Standard Schema that also implements `ObjectKeysCarrier`.
-- `ObjectKeysCarrier`: the `{ getObjectKeys(): readonly string[] }` capability a path-param schema
-  must add so `mapApiContractToPath` can read its keys (see [Path mapping](#path-mapping)).
+- `RequestPathParamsSchema`: a Standard Schema that also implements `StandardObjectKeysV1`.
+- `StandardObjectKeysV1`: the `~standard.objectKeys` object-key introspection surface a path-param
+  schema must add so `mapApiContractToPath` can read its keys (see [Path mapping](#path-mapping)). A
+  local copy of the proposed [spec extension](../../docs/proposals/object-keys-introspection.md),
+  shared with `@toad-contracts/messages`.
 
 ## Utility functions
 

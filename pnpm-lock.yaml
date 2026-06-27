@@ -205,9 +205,6 @@ importers:
       '@toad-contracts/core':
         specifier: workspace:*
         version: link:../core
-      '@toad-contracts/messages':
-        specifier: workspace:*
-        version: link:../messages
     devDependencies:
       '@lokalise/tsconfig':
         specifier: ^5.0.0
@@ -215,6 +212,9 @@ importers:
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
+      '@toad-contracts/messages':
+        specifier: workspace:*
+        version: link:../messages
       '@types/node':
         specifier: ^25.9.3
         version: 25.9.4
@@ -239,9 +239,6 @@ importers:
       '@toad-contracts/core':
         specifier: workspace:*
         version: link:../core
-      '@toad-contracts/messages':
-        specifier: workspace:*
-        version: link:../messages
     devDependencies:
       '@lokalise/tsconfig':
         specifier: ^5.0.0
@@ -249,6 +246,9 @@ importers:
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
+      '@toad-contracts/messages':
+        specifier: workspace:*
+        version: link:../messages
       '@types/node':
         specifier: ^25.9.3
         version: 25.9.4

@@ -6,5 +6,6 @@ export * from "./defineApiContract.ts";
 export * from "./inferTypes.ts";
 export * from "./pathUtils.ts";
 export * from "./schemaTypes.ts";
+export * from "./standardObjectKeys.ts";
 export * from "./typeUtils.ts";
 export * from "./validation.ts";

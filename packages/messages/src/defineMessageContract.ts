@@ -1,31 +1,26 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardObjectKeysV1 } from "@toad-contracts/core";
 
 /**
- * The capability, beyond Standard Schema, that message routing needs: read the literal string
- * declared at a field path so a message's type can be discovered from its schema at registration
- * time. The Standard Schema spec exposes no such introspection. Schema-library adapters implement
- * this on the schemas they produce (`@toad-contracts/zod` reads `.shape[...].value`,
- * `@toad-contracts/valibot` reads `.entries[...].literal`). This package depends only on the
- * interface and never on a concrete schema library, so the dependency is inverted: adapters satisfy
- * this contract, not the other way round. This is the message-side counterpart of core's
- * `ObjectKeysCarrier`.
+ * A message schema whose fields can be introspected: a Standard Schema that also carries the shared
+ * {@link StandardObjectKeysV1} surface. This is the same single object-key extension API contracts
+ * use for path-param mapping — message routing reuses it to read a schema's declared field *names*
+ * with no value in hand (field projection, routing-/partition-key derivation, partial-update
+ * payloads, field-to-header mapping), so every adapter implements one introspection surface rather
+ * than a message-specific one. The Standard Schema spec exposes no such introspection; schema-library
+ * adapters implement it on the schemas they produce (`@toad-contracts/valibot` and
+ * `@toad-contracts/zod` both ship `withObjectKeys`). This package depends only on the interface and
+ * never on a concrete schema library, so the dependency is inverted: adapters satisfy this contract,
+ * not the other way round.
  */
-export interface MessageTypeCarrier {
-  /**
-   * The literal string declared at `fieldPath` (dot-notation, default `"type"`), or `undefined` when
-   * the path is absent or the field is not a string literal.
-   */
-  readonly getMessageType: (fieldPath?: string) => string | undefined;
-}
-
-/** A message schema that can be routed by type: a Standard Schema that also carries the literal. */
-export type RoutableMessageSchema = StandardSchemaV1 & MessageTypeCarrier;
+export type RoutableMessageSchema = StandardSchemaV1 & StandardObjectKeysV1;
 
 /**
  * The slim message-side counterpart of an API contract: a consumer schema (the parsed/output side a
  * handler receives) and a publisher schema (the input side a producer sends) plus optional
- * documentation metadata. Both schemas carry {@link MessageTypeCarrier} so several message types can
- * be routed from a single container by reading the type literal out of each schema.
+ * documentation metadata. Both schemas carry the shared {@link StandardObjectKeysV1} surface so a
+ * routing container can enumerate each schema's declared field names from a single introspection
+ * surface.
  *
  * Unlike `ApiContract` this has no HTTP verb, path resolver, or status-code response map; a message
  * needs none of those.

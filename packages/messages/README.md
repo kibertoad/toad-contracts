@@ -6,12 +6,13 @@ contracts.
 
 Message routing libraries (for example
 [message-queue-toolkit](https://github.com/kibertoad/message-queue-toolkit)) need one capability
-that Standard Schema does not expose: reading the literal type discriminator declared in a schema so
-a message's type can be discovered from its schema at registration time. This package defines that
-capability as the vendor-neutral `MessageTypeCarrier` interface (the analogue of core's
-`ObjectKeysCarrier`) and a slim `MessageContract` type. It carries no schema-library runtime
-dependency; the introspection is supplied by an adapter such as
-[`@toad-contracts/zod`](../zod) or [`@toad-contracts/valibot`](../valibot).
+that Standard Schema does not expose: enumerating a schema's declared field names with no value in
+hand — for field projection, routing-/partition-key derivation, partial-update payloads, and
+field-to-header mapping. This is the _same_ object-key introspection core uses to build route paths,
+so this package reuses core's `StandardObjectKeysV1` surface rather than defining a message-specific
+one. It carries no schema-library runtime dependency; the introspection is supplied by an adapter
+such as [`@toad-contracts/zod`](../zod) or [`@toad-contracts/valibot`](../valibot), each of which
+ships a single `withObjectKeys` that satisfies both API and message contracts.
 
 ```sh
 pnpm add @toad-contracts/messages
@@ -19,10 +20,9 @@ pnpm add @toad-contracts/messages
 
 ## What it provides
 
-- `MessageTypeCarrier` — `{ getMessageType(fieldPath?): string | undefined }`. The single capability
-  beyond Standard Schema. `fieldPath` is dot-notation (default `"type"`, e.g. `"detail-type"` or
-  `"metadata.eventType"`).
-- `RoutableMessageSchema` — `StandardSchemaV1 & MessageTypeCarrier`.
+- `RoutableMessageSchema` — `StandardSchemaV1 & StandardObjectKeysV1`. A message schema whose declared
+  field names can be read via `schema["~standard"].objectKeys.input()` (the single object-key surface,
+  re-exported from `@toad-contracts/core`).
 - `MessageContract` — `{ consumerSchema, publisherSchema, schemaVersion?, producedBy?, domain?, tags? }`.
   No HTTP verb, path resolver, or status-code response map; a message needs none of those.
 - `defineMessageContract(contract)` — identity helper preserving the literal type for inference.
@@ -36,18 +36,18 @@ through any Standard Schema) is re-exported, so this is a single import point fo
 
 ```ts
 import { defineMessageContract, type InferConsumerMessage } from "@toad-contracts/messages";
-import { withMessageType } from "@toad-contracts/zod"; // or @toad-contracts/valibot
+import { withObjectKeys } from "@toad-contracts/zod"; // or @toad-contracts/valibot
 import { z } from "zod";
 
 const userCreated = defineMessageContract({
-  consumerSchema: withMessageType(
+  consumerSchema: withObjectKeys(
     z.object({
       type: z.literal("user.created"),
       id: z.string(),
       payload: z.object({ name: z.string() }),
     }),
   ),
-  publisherSchema: withMessageType(
+  publisherSchema: withObjectKeys(
     z.object({
       type: z.literal("user.created"),
       id: z.string().optional(),
@@ -57,7 +57,7 @@ const userCreated = defineMessageContract({
   domain: "users",
 });
 
-userCreated.consumerSchema.getMessageType(); // "user.created"
+userCreated.consumerSchema["~standard"].objectKeys.input(); // ["type", "id", "payload"]
 
 type UserCreated = InferConsumerMessage<typeof userCreated>;
 ```

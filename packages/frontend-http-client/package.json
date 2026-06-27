@@ -41,8 +41,7 @@
     "lint": "oxlint && oxfmt --check . && tsc",
     "lint:fix": "oxlint --fix && oxfmt .",
     "test": "vitest run",
-    "test:ci": "vitest run --coverage",
-    "prepublishOnly": "pnpm run build"
+    "test:ci": "vitest run --coverage"
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",

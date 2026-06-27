@@ -1,5 +1,11 @@
 # @toad-contracts/core
 
+## 0.3.0
+
+### Minor Changes
+
+- 2a49408: Bump all packages a minor version.
+
 ## 0.2.0
 
 ### Minor Changes

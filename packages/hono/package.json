@@ -1,6 +1,6 @@
 {
   "name": "@toad-contracts/hono",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "description": "Hono adapter for @toad-contracts: mount fully typed, self-validating routes from standard-schema contracts",
   "keywords": [

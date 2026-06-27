@@ -1,0 +1,24 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    globals: true,
+    watch: false,
+    mockReset: true,
+    pool: "threads",
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      thresholds: {
+        lines: 100,
+        functions: 100,
+        branches: 92,
+        statements: 100,
+      },
+    },
+    typecheck: {
+      enabled: true,
+      include: ["src/**/*.spec.ts"],
+    },
+  },
+});

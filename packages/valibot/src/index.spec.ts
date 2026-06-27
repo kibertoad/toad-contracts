@@ -1,4 +1,5 @@
-import { object, string } from "valibot";
+import { defineMessageContract, type InferConsumerMessage } from "@toad-contracts/messages";
+import { literal, object, string } from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   anyOfResponses,
@@ -11,6 +12,8 @@ import {
   resolveResponseEntry,
   sseResponse,
   textResponse,
+  validateSync,
+  withMessageType,
   withObjectKeys,
 } from "./index.ts";
 
@@ -27,6 +30,65 @@ describe("withObjectKeys", () => {
 
   it("throws an actionable error when the schema does not expose .entries", () => {
     expect(() => withObjectKeys(string())).toThrow(/valibot object schema/);
+  });
+});
+
+describe("withMessageType", () => {
+  it("reads the literal() type from a flat object schema", () => {
+    const schema = withMessageType(object({ type: literal("user.created"), id: string() }));
+    expect(schema.getMessageType()).toBe("user.created");
+    expect(schema.getMessageType("type")).toBe("user.created");
+  });
+
+  it("reads a nested literal via a dot-notation path", () => {
+    const schema = withMessageType(
+      object({ detail: object({ eventType: literal("order.placed") }) }),
+    );
+    expect(schema.getMessageType("detail.eventType")).toBe("order.placed");
+  });
+
+  it("returns undefined when the top-level field is absent", () => {
+    const schema = withMessageType(object({ type: literal("a") }));
+    expect(schema.getMessageType("missing")).toBeUndefined();
+  });
+
+  it("returns undefined when the field is not a string literal", () => {
+    const schema = withMessageType(object({ type: string() }));
+    expect(schema.getMessageType()).toBeUndefined();
+  });
+
+  it("returns undefined when the path descends past a non-object field", () => {
+    const schema = withMessageType(object({ type: literal("a") }));
+    expect(schema.getMessageType("type.sub")).toBeUndefined();
+  });
+
+  it("keeps the schema usable as a Standard Schema", () => {
+    const schema = withMessageType(object({ type: literal("a") }));
+    expect(schema["~standard"].vendor).toBe("valibot");
+    expect(validateSync(schema, { type: "a" })).toEqual({ type: "a" });
+  });
+
+  it("composes with withObjectKeys on the same schema", () => {
+    const schema = withMessageType(withObjectKeys(object({ type: literal("a"), id: string() })));
+    expect(schema.getObjectKeys()).toEqual(["type", "id"]);
+    expect(schema.getMessageType()).toBe("a");
+  });
+
+  it("throws an actionable error when the schema is not a valibot object", () => {
+    expect(() => withMessageType(string())).toThrow(/valibot object schema/);
+  });
+
+  it("composes into a message contract with working type inference", () => {
+    const contract = defineMessageContract({
+      consumerSchema: withMessageType(object({ type: literal("user.created"), id: string() })),
+      publisherSchema: withMessageType(object({ type: literal("user.created"), id: string() })),
+    });
+
+    expect(contract.consumerSchema.getMessageType()).toBe("user.created");
+    expectTypeOf<InferConsumerMessage<typeof contract>>().toEqualTypeOf<{
+      type: "user.created";
+      id: string;
+    }>();
   });
 });
 

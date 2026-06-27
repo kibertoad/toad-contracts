@@ -1,6 +1,6 @@
 {
-  "name": "@toad-contracts/valibot",
-  "version": "0.3.1",
+  "name": "@toad-contracts/zod",
+  "version": "0.0.0",
   "private": false,
   "keywords": [
     "api",
@@ -12,14 +12,14 @@
     "source",
     "standard-schema",
     "truth",
-    "valibot"
+    "zod"
   ],
   "homepage": "https://github.com/kibertoad/toad-contracts",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git://github.com/kibertoad/toad-contracts.git",
-    "directory": "packages/valibot"
+    "directory": "packages/zod"
   },
   "files": [
     "dist"
@@ -53,10 +53,10 @@
     "@vitest/coverage-v8": "^4.1.9",
     "rimraf": "^6.1.2",
     "typescript": "7.0.1-rc",
-    "valibot": "^1.4.1",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "zod": "^4.1.11"
   },
   "peerDependencies": {
-    "valibot": ">=1.0.0"
+    "zod": ">=3.24.0"
   }
 }

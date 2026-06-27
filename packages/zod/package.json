@@ -43,12 +43,12 @@
     "test:ci": "vitest run --coverage"
   },
   "dependencies": {
-    "@toad-contracts/core": "workspace:*",
-    "@toad-contracts/messages": "workspace:*"
+    "@toad-contracts/core": "workspace:*"
   },
   "devDependencies": {
     "@lokalise/tsconfig": "^5.0.0",
     "@standard-schema/spec": "^1.1.0",
+    "@toad-contracts/messages": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "rimraf": "^6.1.2",

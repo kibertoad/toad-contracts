@@ -27,7 +27,7 @@ export function buildHonoRoute<TApp extends AnyHonoApp, const TContract extends 
   options: BuildHonoRouteOptions = {},
 ): TApp {
   // Derives the Hono path (e.g. /users/:userId) from the contract via core's mapApiContractToPath,
-  // which reads the path-param keys through the schema's ObjectKeysCarrier surface (implemented by
+  // which reads the path-param keys through the schema's StandardObjectKeysV1 surface (implemented by
   // the schema-library adapter, e.g. @toad-contracts/valibot's withObjectKeys).
   const path = mapApiContractToPath(contract);
 

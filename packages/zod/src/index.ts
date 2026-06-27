@@ -1,59 +1,48 @@
 export * from "@toad-contracts/core";
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { MessageTypeCarrier } from "@toad-contracts/messages";
-
-type ZodLiteralNode = { value?: unknown };
-type ZodObjectNode = { shape?: Record<string, unknown> };
-
-const readZodLiteral = (schema: ZodObjectNode, fieldPath: string): string | undefined => {
-  let current: ZodObjectNode & ZodLiteralNode = schema;
-
-  for (const part of fieldPath.split(".")) {
-    if (!current.shape) {
-      return undefined;
-    }
-    current = current.shape[part] as ZodObjectNode & ZodLiteralNode;
-    if (!current) {
-      return undefined;
-    }
-  }
-
-  return typeof current.value === "string" ? current.value : undefined;
-};
+import type { StandardObjectKeysV1 } from "@toad-contracts/core";
 
 /**
- * Augments a zod object schema with the message-type introspection that message routing needs
- * (`@toad-contracts/messages`' {@link MessageTypeCarrier} surface). Zod exposes a field's literal via
- * `.shape[field].value`, which the vendor-neutral Standard Schema interface does not; this adapter
- * implements that interface so consumers stay free of zod specifics.
- *
- * `getMessageType(fieldPath)` walks `.shape` along a dot-notation path (default `"type"`) and returns
- * the `z.literal()` value at the end, or `undefined` when the path is absent or the field is not a
- * string literal:
+ * Augments a zod object schema with the shared object-key introspection surface
+ * ({@link StandardObjectKeysV1}). Zod exposes the declared keys via `.shape`, which the
+ * vendor-neutral Standard Schema interface does not; this adapter implements the spec-style
+ * `~standard.objectKeys` capability so consumers — API contracts (path-param mapping) and message
+ * contracts (field projection/routing) alike — stay free of any zod specifics and rely on the one
+ * surface every adapter implements.
  *
  * ```ts
- * const schema = withMessageType(z.object({ type: z.literal("user.created"), id: z.string() }));
- * schema.getMessageType(); // "user.created"
+ * import { z } from "zod";
+ * import { withObjectKeys } from "@toad-contracts/zod";
+ *
+ * const schema = withObjectKeys(z.object({ userId: z.string(), orgId: z.string() }));
+ * schema["~standard"].objectKeys.input(); // ["userId", "orgId"]
  * ```
  *
  * Only object schemas expose `.shape`; a non-object schema does not, so this throws an actionable
- * error rather than silently returning a schema whose message type can never be resolved.
+ * error instead of silently producing a schema with no object keys.
  */
-export const withMessageType = <TSchema extends StandardSchemaV1>(
+export const withObjectKeys = <TSchema extends StandardSchemaV1>(
   schema: TSchema,
-): TSchema & MessageTypeCarrier => {
-  const shape = (schema as ZodObjectNode).shape;
+): TSchema & StandardObjectKeysV1 => {
+  const shape = (schema as { shape?: Record<string, unknown> }).shape;
 
   if (shape === null || typeof shape !== "object") {
     throw new TypeError(
-      "withMessageType expects a zod object schema exposing `.shape` (e.g. z.object({ ... })). " +
-        "Non-object schemas do not expose a field shape and cannot carry a message type.",
+      "withObjectKeys expects a zod object schema exposing `.shape` (e.g. z.object({ ... })). " +
+        "Non-object schemas do not expose a field shape and cannot be used for path-param mapping " +
+        "or message field introspection.",
     );
   }
 
-  return Object.assign(schema, {
-    getMessageType: (fieldPath = "type"): string | undefined =>
-      readZodLiteral(schema as ZodObjectNode, fieldPath),
-  });
+  const keys = Object.keys(shape);
+  const objectKeys: StandardObjectKeysV1.Lister = {
+    // zod strips unknown keys but keeps every declared key, so input and output keys match.
+    input: () => keys,
+    output: () => keys,
+  };
+
+  Object.assign(schema["~standard"], { objectKeys });
+
+  return schema as TSchema & StandardObjectKeysV1;
 };

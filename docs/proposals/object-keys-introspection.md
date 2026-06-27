@@ -40,8 +40,8 @@ export const mapApiContractToPath = (routeConfig: ApiContract): string => {
     return routeConfig.pathResolver(undefined);
   }
 
-  const resolverParams = routeConfig.requestPathParamsSchema
-    .getObjectKeys()
+  const resolverParams = routeConfig.requestPathParamsSchema["~standard"].objectKeys
+    .input()
     .reduce<Record<string, string>>((acc, key) => {
       acc[key] = `:${key}`;
       return acc;
@@ -51,50 +51,61 @@ export const mapApiContractToPath = (routeConfig: ApiContract): string => {
 };
 ```
 
-Standard Schema cannot answer `getObjectKeys()`, so core has to define the capability itself, as a
-one-method interface that sits *beside* Standard Schema:
+Standard Schema cannot answer "which keys?", so toad-contracts has to define the capability itself.
+Rather than invent a bespoke shape, core vendors a **local copy of the exact extension proposed
+below** — `StandardObjectKeysV1`, a sibling interface that sits *beside* Standard Schema in the same
+`"~standard"` namespace — and both API contracts and message contracts depend on that one surface:
 
 ```ts
-// packages/core/src/defineApiContract.ts
-export interface ObjectKeysCarrier {
-  /** Lists the schema's object-property keys. */
-  readonly getObjectKeys: () => readonly string[];
+// packages/core/src/standardObjectKeys.ts — local copy of the proposed spec extension
+export interface StandardObjectKeysV1<Input = unknown, Output = Input> {
+  readonly "~standard": StandardObjectKeysV1.Props<Input, Output>;
 }
+// ...Props.objectKeys: { input(): readonly string[]; output(): readonly string[] }
 
+// packages/core/src/defineApiContract.ts
 /** A path-params schema: a Standard Schema that also carries object-key introspection. */
-export type RequestPathParamsSchema = RequestObjectSchema & ObjectKeysCarrier;
+export type RequestPathParamsSchema = RequestObjectSchema & StandardObjectKeysV1;
+
+// packages/messages/src/defineMessageContract.ts
+/** A message schema whose declared field names can be enumerated for routing/projection. */
+export type RoutableMessageSchema = StandardSchemaV1 & StandardObjectKeysV1;
 ```
 
 And because the spec can't satisfy that interface, every schema library needs an adapter whose *only*
-job is to recover keys. The valibot adapter reads valibot's private `.entries`:
+job is to recover keys. The valibot adapter reads valibot's private `.entries` and attaches the
+`~standard.objectKeys` lister:
 
 ```ts
 // packages/valibot/src/index.ts
 export const withObjectKeys = <TSchema extends StandardSchemaV1>(
   schema: TSchema,
-): TSchema & ObjectKeysCarrier => {
+): TSchema & StandardObjectKeysV1 => {
   const entries = (schema as { entries?: Record<string, unknown> }).entries;
 
   if (entries === null || typeof entries !== "object") {
     throw new TypeError(
       "withObjectKeys expects a valibot object schema exposing `.entries` (e.g. object({ ... })). " +
         "Wrapped schemas like pipe(object(...), ...) and non-object schemas do not expose object " +
-        "keys and cannot be used for path-param mapping.",
+        "keys and cannot be used for path-param mapping or message field introspection.",
     );
   }
 
   const keys = Object.keys(entries);
-  return Object.assign(schema, { getObjectKeys: (): readonly string[] => keys });
+  const objectKeys: StandardObjectKeysV1.Lister = { input: () => keys, output: () => keys };
+  Object.assign(schema["~standard"], { objectKeys });
+  return schema as TSchema & StandardObjectKeysV1;
 };
 ```
 
 This works, but it is pure friction that exists solely because the spec stops one step short:
 
-- **Every adapter re-implements it.** A zod adapter would read `.shape`; an arktype adapter its props.
-  `ObjectKeysCarrier` is a small standard interface re-satisfied N times against N private surfaces.
-- **It leaks the library back into "library-agnostic" code.** Authors must wrap path-param schemas in
-  `withObjectKeys(...)` (or otherwise attach the keys) — a step that has nothing to do with their
-  domain and exists only to paper over a spec gap.
+- **Every adapter re-implements it.** The zod adapter reads `.shape`; an arktype adapter its props.
+  `StandardObjectKeysV1` is a small interface re-satisfied N times against N private surfaces — and
+  toad-contracts has to vendor that interface itself because the spec offers no home for it.
+- **It leaks the library back into "library-agnostic" code.** Authors must wrap path-param and message
+  schemas in `withObjectKeys(...)` (or otherwise attach the keys) — a step that has nothing to do with
+  their domain and exists only to paper over a spec gap.
 - **It is fragile.** `.entries` is valibot-internal and only present on plain object schemas;
   `pipe(object(...), ...)` loses it, hence the runtime guard above. A standardized accessor would
   carry the same guarantees as `validate` does.
@@ -296,17 +307,18 @@ Design intent:
   library already has this, so implementation is trivial and consumer semantics are obvious.
 - **Consistent with the spec's own precedent.** Same `"~standard"` namespace, same `Props`/`Types`/
   `InferInput`/`InferOutput` boilerplate, same input/output split as `StandardJSONSchemaV1`.
-- **Mirrors today's `ObjectKeysCarrier`.** The same one-method idea toad-contracts already ships,
-  promoted from a bolt-on interface to a first-class, vendor-neutral spec extension.
+- **Already shipping in toad-contracts.** This is the exact surface `@toad-contracts/core` vendors
+  locally today as `StandardObjectKeysV1`, shared by both API and message contracts; adopting it
+  upstream just lets us delete the vendored copy and re-export it from the spec.
 
 The exact name and whether the lister exposes `input`/`output` or a single accessor are open for the
 spec authors; this proposal argues for the *capability* and offers a faithful, spec-formatted shape.
 
 ## Drawbacks and alternatives
 
-- **Status quo — keep adapter glue.** Every consumer keeps shipping its own `ObjectKeysCarrier` +
-  `withObjectKeys` equivalent against private internals. Workable, but it's exactly the per-library
-  coupling Standard Schema set out to eliminate, duplicated across the ecosystem.
+- **Status quo — keep adapter glue.** Every consumer keeps vendoring its own `StandardObjectKeysV1`
+  copy + `withObjectKeys` equivalent against private internals. Workable, but it's exactly the
+  per-library coupling Standard Schema set out to eliminate, duplicated across the ecosystem.
 - **Standardize a broader introspection surface** (nested schemas, element/value types, unions,
   optionality). More powerful, but far larger and harder to land, and most consumers — including
   toad-contracts — only need the key list. We deliberately keep this proposal narrow; a fuller
@@ -318,14 +330,20 @@ spec authors; this proposal argues for the *capability* and offers a faithful, s
 
 ## Impact on toad-contracts
 
-If adopted, the gap that motivated `ObjectKeysCarrier` disappears:
+toad-contracts already ships this surface: `@toad-contracts/core` vendors `StandardObjectKeysV1` as a
+local copy of the extension above, `mapApiContractToPath` reads keys via
+`schema["~standard"].objectKeys.input()`, and both `RequestPathParamsSchema` and the message side's
+`RoutableMessageSchema` are expressed as `StandardSchemaV1 & StandardObjectKeysV1`. Every adapter
+(`@toad-contracts/valibot`, `@toad-contracts/zod`) implements that one surface through `withObjectKeys`
+— so API path mapping and message field introspection share a single extension instead of two.
 
-- `mapApiContractToPath` reads keys via `schema["~standard"].objectKeys.input()` directly — no
-  bespoke interface.
-- `RequestPathParamsSchema` drops the `& ObjectKeysCarrier` intersection and becomes
-  `StandardSchemaV1 & StandardObjectKeysV1`, expressed entirely in spec types.
-- `@toad-contracts/valibot`'s `withObjectKeys` wrapper — and the analogous wrapper every other
-  adapter would otherwise need — is deleted. Authors stop wrapping their path-param schemas.
+Lifting it into the spec closes the remaining gaps:
+
+- The vendored `StandardObjectKeysV1` copy in core is deleted and re-exported from
+  `@standard-schema/spec` instead — one fewer bespoke type to maintain.
+- Once libraries satisfy the interface natively, every adapter's `withObjectKeys` wrapper — and the
+  analogous wrapper every other adapter would otherwise need — disappears, and authors stop wrapping
+  their path-param and message schemas at all.
 
 That is the proposal's value in miniature: one small, optional spec addition removes a whole category
 of per-library glue, for us and for everyone else programming against a schema's shape.

@@ -5,7 +5,8 @@ The [valibot](https://valibot.dev) adapter for [`@toad-contracts/core`](../core)
 The core contract library is written against the vendor-neutral
 [Standard Schema](https://github.com/standard-schema/spec) interface, which valibot v1 implements.
 This package re-exports the entire core API and adds `withObjectKeys`, the valibot implementation of
-the object-key introspection core needs for path-param schemas, something the Standard Schema
+the single object-key introspection surface (`StandardObjectKeysV1`) that API contracts need for
+path-param schemas and message contracts need for field introspection, something the Standard Schema
 interface does not expose.
 
 `valibot` is a peer dependency.
@@ -44,39 +45,40 @@ describeApiContract(getUser); // "GET /users/:userId"
 
 ## What this package adds
 
-`withObjectKeys(schema)` and `withMessageType(schema)` are the only additions; everything else is a
-direct re-export from `@toad-contracts/core`.
+`withObjectKeys(schema)` is the only addition; everything else is a direct re-export from
+`@toad-contracts/core`.
 
-Core needs a contract's `requestPathParamsSchema` to expose its object keys to build the route path,
-which the Standard Schema interface does not provide. `withObjectKeys` attaches that capability
-(core's `ObjectKeysCarrier`) to a valibot object schema by reading its `.entries`:
+API contracts need a `requestPathParamsSchema` to expose its object keys to build the route path, and
+message contracts need a schema's declared field names for routing/projection — both read through the
+same `StandardObjectKeysV1` surface, which the Standard Schema interface does not provide.
+`withObjectKeys` attaches that capability to a valibot object schema by reading its `.entries`:
 
 ```ts
 // effectively:
-export const withObjectKeys = (schema) =>
-  Object.assign(schema, { getObjectKeys: () => Object.keys(schema.entries) });
+export const withObjectKeys = (schema) => {
+  const keys = Object.keys(schema.entries);
+  Object.assign(schema["~standard"], {
+    objectKeys: { input: () => keys, output: () => keys },
+  });
+  return schema;
+};
 ```
 
-Wrap any `requestPathParamsSchema` with it. Only plain object schemas (`object`, `strictObject`,
+Wrap any path-param or message schema with it. Only plain object schemas (`object`, `strictObject`,
 `looseObject`, `objectWithRest`) expose `.entries`; a wrapped schema such as `pipe(object(...), ...)`
 or a non-object schema does not, so `withObjectKeys` throws an actionable `TypeError` rather than
-silently producing a route with no path params.
+silently producing a schema with no object keys.
 
 The path-mapping helpers `mapApiContractToPath(contract)` and `describeApiContract(contract)` are
 re-exported from core unchanged and already single-argument; they read the keys through whatever
-`withObjectKeys` attached.
-
-`withMessageType(schema)` attaches `@toad-contracts/messages`' `MessageTypeCarrier` for message
-contracts, reading a field's `literal()` value through `.entries`:
+`withObjectKeys` attached. The same wrapper makes a schema satisfy
+[`@toad-contracts/messages`](../messages)' `RoutableMessageSchema`, so a routing container can
+enumerate a message's declared field names — no separate message-specific helper is needed:
 
 ```ts
-import { withMessageType } from "@toad-contracts/valibot";
+import { withObjectKeys } from "@toad-contracts/valibot";
 import { literal, object, string } from "valibot";
 
-const schema = withMessageType(object({ type: literal("user.created"), id: string() }));
-schema.getMessageType(); // "user.created"
+const schema = withObjectKeys(object({ type: literal("user.created"), id: string() }));
+schema["~standard"].objectKeys.input(); // ["type", "id"]
 ```
-
-`getMessageType(fieldPath)` walks `.entries` along a dot-notation path (default `"type"`, e.g.
-`"detail.eventType"`) and returns the literal at the end, or `undefined` when the path is absent or
-the field is not a string literal. It composes with `withObjectKeys` on the same schema.

@@ -22,17 +22,21 @@ import {
   streamResponse,
   textResponse,
 } from "./contractResponse.ts";
-import { defineApiContract, type ObjectKeysCarrier } from "./defineApiContract.ts";
+import { defineApiContract } from "./defineApiContract.ts";
+import type { StandardObjectKeysV1 } from "./standardObjectKeys.ts";
 
 type DefaultHeaders = Record<string, string>;
 
-// Stands in for a schema-library adapter implementing core's ObjectKeysCarrier surface, so path-param
-// schemas satisfy RequestPathParamsSchema without core depending on a concrete schema library.
-const withKeys = <T extends StandardSchemaV1>(schema: T): T & ObjectKeysCarrier =>
-  Object.assign(schema, {
-    getObjectKeys: () =>
-      Object.keys((schema as unknown as { entries: Record<string, unknown> }).entries),
+// Stands in for a schema-library adapter implementing the shared StandardObjectKeysV1 surface, so
+// path-param schemas satisfy RequestPathParamsSchema without core depending on a concrete schema
+// library.
+const withKeys = <T extends StandardSchemaV1>(schema: T): T & StandardObjectKeysV1 => {
+  const keys = Object.keys((schema as unknown as { entries: Record<string, unknown> }).entries);
+  Object.assign(schema["~standard"], {
+    objectKeys: { input: () => keys, output: () => keys },
   });
+  return schema as T & StandardObjectKeysV1;
+};
 
 describe("clientTypes", () => {
   describe("ClientRequestParams", () => {

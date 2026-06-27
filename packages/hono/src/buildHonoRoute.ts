@@ -1,7 +1,9 @@
 import { type ApiContract, ContractNoBody, mapApiContractToPath } from "@toad-contracts/core";
-import type { MiddlewareHandler } from "hono";
+import type { Hono, MiddlewareHandler } from "hono";
+import type { BlankEnv, BlankSchema, Env, Schema } from "hono/types";
 import { contractValidator } from "./honoContractValidator.ts";
-import type { AnyHonoApp, BuildHonoRouteOptions, HonoContractHandler } from "./types.ts";
+import { requestByContract } from "./requestByContract.ts";
+import type { AnyHonoApp, BuildHonoRouteOptions, EnvOf, HonoContractHandler } from "./types.ts";
 
 /**
  * Mounts a contract on a Hono app as a fully typed, self-validating route. The HTTP method and path
@@ -21,7 +23,7 @@ import type { AnyHonoApp, BuildHonoRouteOptions, HonoContractHandler } from "./t
 export function buildHonoRoute<TApp extends AnyHonoApp, const TContract extends ApiContract>(
   app: TApp,
   contract: TContract,
-  handler: HonoContractHandler<TContract>,
+  handler: HonoContractHandler<TContract, EnvOf<TApp>>,
   options: BuildHonoRouteOptions = {},
 ): TApp {
   // Derives the Hono path (e.g. /users/:userId) from the contract via core's mapApiContractToPath,
@@ -90,4 +92,49 @@ export function buildHonoRouteHandler<const TContract extends ApiContract>(
   handler: HonoContractHandler<TContract>,
 ): HonoContractHandler<TContract> {
   return handler;
+}
+
+/**
+ * Binds {@link buildHonoRoute} and {@link buildHonoRouteHandler} to a consuming app's `Env`, so
+ * handlers defined separately from the app still get `c.get(...)` typed for the app's own variables
+ * (e.g. `container`, `user`) in addition to `c.get('apiContract')`. {@link requestByContract} is
+ * re-exported unchanged for convenience (it takes the app at call time, so it has no env to bind).
+ *
+ * Prefer the free {@link buildHonoRoute} with inline handlers when the `Hono<AppEnv>` app is in scope
+ * at registration: its env is inferred automatically. Use this factory when a handler must be authored
+ * without a concrete app to infer from. Do not type a standalone handler with the bare
+ * {@link buildHonoRouteHandler} and register it on an app with its own env: Hono's `Context` is
+ * invariant in its env, so that is a (correct) type error. Use this factory's `buildHonoRouteHandler`.
+ *
+ * @example
+ * const { buildHonoRoute, buildHonoRouteHandler } = honoContractRoutes<AppEnv>();
+ */
+export function honoContractRoutes<TEnv extends Env = BlankEnv>() {
+  function build<
+    const TContract extends ApiContract,
+    TSchema extends Schema = BlankSchema,
+    TBasePath extends string = "/",
+  >(
+    app: Hono<TEnv, TSchema, TBasePath>,
+    contract: TContract,
+    handler: HonoContractHandler<TContract, TEnv>,
+    options: BuildHonoRouteOptions = {},
+  ): Hono<TEnv, TSchema, TBasePath> {
+    // `EnvOf<Hono<TEnv, ...>>` reduces to `TEnv` for any concrete env, but its `any` guard is a
+    // conditional TS cannot resolve while `TEnv` is still generic here. The handler is already
+    // constrained to `TEnv` by this signature, so cast it across that unresolved boundary.
+    return buildHonoRoute(
+      app,
+      contract,
+      handler as HonoContractHandler<TContract, EnvOf<typeof app>>,
+      options,
+    );
+  }
+  function buildHandler<const TContract extends ApiContract>(
+    _contract: TContract,
+    handler: HonoContractHandler<TContract, TEnv>,
+  ): HonoContractHandler<TContract, TEnv> {
+    return handler;
+  }
+  return { buildHonoRoute: build, buildHonoRouteHandler: buildHandler, requestByContract };
 }

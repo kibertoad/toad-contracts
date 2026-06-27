@@ -13,6 +13,7 @@ import type {
 } from "@toad-contracts/core";
 import type { SchemaValidationError } from "@toad-contracts/core";
 import type { Context, Handler, Hono, MiddlewareHandler, TypedResponse } from "hono";
+import type { BlankEnv, Env } from "hono/types";
 import type { StatusCode } from "hono/utils/http-status";
 
 /**
@@ -108,13 +109,41 @@ type ContractResponseReturn<TContract extends ApiContract> = [
   ? Response
   : ContractResponseUnion<TContract>;
 
+// True only for `any`: `any` is the one type for which `1 & T` stays `any`, so `0 extends 1 & T`
+// holds. Used to keep an `any`-typed app from poisoning the handler env (see EnvOf).
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/**
+ * The Hono `Env` of an app instance, recovered from its first generic. Used to flow a consuming app's
+ * `Variables`/`Bindings` (e.g. `c.get('container')`) into a contract handler's context, on top of the
+ * contract's own `apiContract` variable. Falls back to `BlankEnv` for a non-Hono type.
+ *
+ * `Hono<any, ...>` (e.g. the {@link AnyHonoApp} alias) infers `E = any`; left unguarded, `ContractEnv
+ * & any` collapses to `any` and silently drops all `c.get`/`c.set` typing, including `apiContract`. The
+ * `IsAny` guard falls back to `BlankEnv` so such apps keep the contract-only env the old type enforced.
+ */
+export type EnvOf<TApp> =
+  TApp extends Hono<infer E, infer _S, infer _B>
+    ? IsAny<E> extends true
+      ? BlankEnv
+      : E
+    : BlankEnv;
+
 /**
  * A Hono handler whose context is fully typed from the contract: `c.req.valid('param'|'query'|
  * 'header'|'json')` carry the parsed request data, `c.get('apiContract')` returns the contract, and
  * the return value is constrained to the contract's declared responses.
+ *
+ * The optional `TEnv` merges a consuming app's `Env` (its `Variables`/`Bindings`) into the context, so
+ * `c.get(...)` also resolves the app's own variables. With the default `TEnv = BlankEnv` the context
+ * is exactly `ContractEnv<TContract>` (`& {}` is the identity), keeping the single-argument form
+ * fully backward compatible.
  */
-export type HonoContractHandler<TContract extends ApiContract> = Handler<
-  ContractEnv<TContract>,
+export type HonoContractHandler<
+  TContract extends ApiContract,
+  TEnv extends Env = BlankEnv,
+> = Handler<
+  ContractEnv<TContract> & TEnv,
   string,
   ContractInput<TContract>,
   ContractResponseReturn<TContract> | Promise<ContractResponseReturn<TContract>>

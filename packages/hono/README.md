@@ -16,6 +16,7 @@ contract's Standard Schemas, so any Standard Schema library (valibot, zod, ...) 
   - [`buildHonoRoute`](#buildhonoroute)
   - [`buildHonoRouteHandler`](#buildhonoroutehandler)
   - [Accessing the contract](#accessing-the-contract)
+  - [Accessing the app's own context variables](#accessing-the-apps-own-context-variables)
   - [Validation errors](#validation-errors)
   - [Query parameters and arrays](#query-parameters-and-arrays)
   - [Adding middleware from contract metadata](#adding-middleware-from-contract-metadata)
@@ -127,6 +128,47 @@ buildHonoRoute(app, contract, (c) => {
   return c.json({ name: "Frodo" }, 200);
 });
 ```
+
+### Accessing the app's own context variables
+
+`buildHonoRoute` infers the app's `Env` from the app instance, so a handler on a typed app keeps its
+own context variables typed alongside `apiContract`. Pass a `Hono<AppEnv>` and `c.get('container')`,
+`c.get('user')`, and similar resolve from `AppEnv['Variables']` with no extra annotation:
+
+```ts
+type AppEnv = { Variables: { container: ServerContainer; user?: SessionPayload } };
+
+const app = new Hono<AppEnv>();
+
+buildHonoRoute(app, contract, (c) => {
+  const container = c.get("container"); // typed as ServerContainer
+  const user = c.get("user"); // typed as SessionPayload | undefined
+  const apiContract = c.get("apiContract"); // still typed from the contract
+  return c.json({ name: "Frodo" }, 200);
+});
+```
+
+For a handler defined away from its app (no instance to infer the env from), bind the env once with
+`honoContractRoutes<AppEnv>()`. It returns `buildHonoRoute` and `buildHonoRouteHandler` bound to the
+env, plus `requestByContract` re-exported unchanged for convenience:
+
+```ts
+import { honoContractRoutes } from "@toad-contracts/hono";
+
+const { buildHonoRoute, buildHonoRouteHandler } = honoContractRoutes<AppEnv>();
+
+const handler = buildHonoRouteHandler(contract, (c) => {
+  const container = c.get("container"); // typed as ServerContainer
+  return c.json({ name: "Sam" }, 201);
+});
+
+buildHonoRoute(app, contract, handler);
+```
+
+Hono's `Context` is invariant in its env, so a standalone handler typed with the bare
+`buildHonoRouteHandler` (no env) is not assignable to a route on an app with its own env: that is a
+type error by design, catching env mismatches. Use the factory's `buildHonoRouteHandler` for such
+handlers. Inline handlers passed straight to the free `buildHonoRoute` need none of this.
 
 ### Validation errors
 

@@ -51,7 +51,7 @@
   "devDependencies": {
     "@lokalise/tsconfig": "^5.0.0",
     "@toad-contracts/valibot": "workspace:*",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.9",
     "mockttp": "^4.4.2",
     "msw": "^2.13.2",

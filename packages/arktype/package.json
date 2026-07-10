@@ -51,7 +51,7 @@
     "@toad-contracts/messages": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
-    "arktype": "^2.1.0",
+    "arktype": "^2.2.2",
     "rimraf": "^6.1.2",
     "typescript": "7.0.1-rc",
     "vitest": "^4.1.9"

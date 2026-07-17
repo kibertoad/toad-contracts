@@ -51,7 +51,7 @@
     "@toad-contracts/valibot": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
-    "hono": "^4.12.27",
+    "hono": "^4.12.29",
     "rimraf": "^6.1.2",
     "typescript": "7.0.1-rc",
     "valibot": "^1.4.1",

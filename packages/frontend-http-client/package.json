@@ -54,7 +54,7 @@
     "@toad-contracts/valibot": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
-    "mockttp": "^4.4.2",
+    "mockttp": "^4.5.0",
     "rimraf": "^6.1.3",
     "typescript": "7.0.1-rc",
     "valibot": "^1.4.1",

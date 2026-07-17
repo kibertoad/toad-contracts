@@ -54,7 +54,7 @@
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "mockttp": "^4.4.2",
-    "msw": "^2.13.2",
+    "msw": "^2.15.0",
     "rimraf": "^6.1.2",
     "typescript": "7.0.1-rc",
     "valibot": "^1.4.1",

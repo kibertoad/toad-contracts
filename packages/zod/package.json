@@ -50,10 +50,10 @@
     "@standard-schema/spec": "^1.1.0",
     "@toad-contracts/messages": "workspace:*",
     "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.10",
     "rimraf": "^6.1.2",
     "typescript": "7.0.1-rc",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.10",
     "zod": "^4.1.11"
   },
   "peerDependencies": {

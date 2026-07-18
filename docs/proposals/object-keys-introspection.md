@@ -40,7 +40,6 @@ That resolver is the single source of truth for the URL layout, and core deliber
 To build that argument object, core must know *which* parameters exist — `orgId` and `userId` — so it can hand each one its `:key` placeholder. **That list of parameter names is precisely what it reads from the schema's keys.** This is the only reason the loop below exists: it isn't iterating for iteration's sake, it's constructing a `{ orgId: ":orgId", userId: ":userId" }` argument to feed back into the author's resolver.
 
 ```ts
-// packages/core/src/defineApiContract.ts
 export const mapApiContractToPath = (routeConfig: ApiContract): string => {
   // No path params → the resolver takes no arguments; just call it.
   if (!routeConfig.requestPathParamsSchema) {
@@ -67,17 +66,15 @@ Step 1 is the capability Standard Schema lacks. Everything else is ordinary code
 Standard Schema cannot answer "which keys?", so toad-contracts has to define the capability itself. Rather than invent a bespoke shape, core vendors a **local copy of the exact extension proposed below** — `StandardObjectKeysV1`, a sibling interface that sits *beside* Standard Schema in the same `"~standard"` namespace — and both API contracts and message contracts depend on that one surface:
 
 ```ts
-// packages/core/src/standardObjectKeys.ts — local copy of the proposed spec extension
+// Vendored locally today; identical to the extension proposed below.
 export interface StandardObjectKeysV1<Input = unknown, Output = Input> {
   readonly "~standard": StandardObjectKeysV1.Props<Input, Output>;
 }
 // ...Props.objectKeys: { input(): readonly string[]; output(): readonly string[] }
 
-// packages/core/src/defineApiContract.ts
 /** A path-params schema: a Standard Schema that also carries object-key introspection. */
 export type RequestPathParamsSchema = RequestObjectSchema & StandardObjectKeysV1;
 
-// packages/messages/src/defineMessageContract.ts
 /** A message schema whose declared field names can be enumerated for routing/projection. */
 export type RoutableMessageSchema = StandardSchemaV1 & StandardObjectKeysV1;
 ```
@@ -85,7 +82,6 @@ export type RoutableMessageSchema = StandardSchemaV1 & StandardObjectKeysV1;
 And because the spec can't satisfy that interface, every schema library needs an adapter whose *only* job is to recover keys. The valibot adapter reads valibot's private `.entries` and attaches the `~standard.objectKeys` lister:
 
 ```ts
-// packages/valibot/src/index.ts
 export const withObjectKeys = <TSchema extends StandardSchemaV1>(
   schema: TSchema,
 ): TSchema & StandardObjectKeysV1 => {
@@ -187,6 +183,9 @@ The spec already extends itself in exactly the way this proposal needs. The curr
 This proposal adds one more sibling in that same mold: **`StandardObjectKeysV1`**. The shape mirrors `StandardJSONSchemaV1` deliberately — including the input/output split, since a schema's declared input keys and its post-transform output keys can differ — so it slots into the existing package without inventing new conventions:
 
 ```ts
+// References the base `StandardTypedV1` already exported by the spec; it is not redefined here.
+import type { StandardTypedV1 } from "@standard-schema/spec";
+
 /** The Standard Object Keys interface. */
 export interface StandardObjectKeysV1<Input = unknown, Output = Input> {
   /** The Standard Object Keys properties. */
@@ -233,7 +232,7 @@ export declare namespace StandardObjectKeysV1 {
 }
 ```
 
-A drop-in copy of this extension, formatted to match the spec package's `src/index.ts`, lives alongside this proposal at [`object-keys-spec-extension.ts`](./object-keys-spec-extension.ts).
+The block above is written in the spec package's own style, so it can be dropped into `src/index.ts` as-is.
 
 ### How libraries implement it
 

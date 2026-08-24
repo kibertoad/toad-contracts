@@ -37,6 +37,7 @@
   "scripts": {
     "clean": "rimraf dist",
     "build": "rimraf dist && tsc --project tsconfig.build.json",
+    "prepublishOnly": "turbo run build --filter=@toad-contracts/hono...",
     "lint": "oxlint && oxfmt --check . && tsc",
     "lint:fix": "oxlint --fix && oxfmt .",
     "test": "vitest run",

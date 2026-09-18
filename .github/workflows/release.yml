@@ -1,9 +1,20 @@
 name: Release
 
-# Changesets-driven release. On every push to main this either opens/updates a
-# "Release Packages" PR (collecting the pending changesets into version bumps +
-# changelogs) or, when that PR has been merged, publishes @toad-contracts/core
-# and @toad-contracts/valibot to npm via OIDC trusted publishing.
+# Changesets-driven release, running entirely on credentials GitHub mints for
+# the run itself — no personal access token, no NPM_TOKEN:
+#
+#   git -> the built-in GITHUB_TOKEN (`contents: write`)
+#   npm -> OIDC trusted publishing (`id-token: write`), configured per package
+#          under "Trusted publisher" in its settings on npmjs.com
+#
+# On every push to main this applies the pending changesets (version bumps +
+# changelogs), publishes the packages whose version is not on npm yet, and
+# pushes the version commit together with the release tags.
+#
+# Versioning and publishing deliberately happen in the same run. A push made
+# with GITHUB_TOKEN does not start another workflow run, so a release must
+# never depend on its own version commit re-triggering this workflow — which is
+# exactly what the previous Release-PR flow needed a PAT for.
 
 on:
   push:
@@ -21,22 +32,17 @@ jobs:
     name: Version / publish
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the Release PR + push tags
-      pull-requests: write # open/update the Release PR
+      contents: write # push the version commit and the release tags
       id-token: write # npm OIDC trusted publishing + provenance
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # changesets/action needs push credentials to create/update the Release
-          # PR branch; this is the one job that legitimately persists them.
+          # The version commit and the tags are pushed from this job, so the
+          # checkout keeps its credentials — the run's own GITHUB_TOKEN.
           persist-credentials: true # zizmor: ignore[artipacked]
-          # Use a PAT, not the default GITHUB_TOKEN: pushes/merges made with the
-          # default token do NOT trigger further workflow runs (GitHub's
-          # anti-recursion rule), so merging the Release PR with GITHUB_TOKEN
-          # left the publish job un-triggered. A PAT-attributed merge re-runs
-          # this workflow, which then publishes (no pending changesets => publish
-          # mode). Falls back to GITHUB_TOKEN if the secret is unset.
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # `changeset publish` tags each released package, so it needs the
+          # existing tags and the history behind them.
+          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -46,41 +52,44 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+          # No registry-url on purpose: it writes an .npmrc entry pointing at
+          # NODE_AUTH_TOKEN, and there is no such token here. pnpm defaults to
+          # registry.npmjs.org and gets its publish credentials from OIDC.
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Create Release PR or publish
-        id: changesets
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
-        with:
-          # Builds both packages then runs `changeset publish`.
-          publish: pnpm ci:publish
-          title: 'Release Packages'
-          commit: 'chore: release packages'
+      - name: Apply pending changesets
+        id: version
+        run: |
+          pnpm changeset version
+          if [ -z "$(git status --porcelain)" ]; then
+            echo 'No pending changesets — nothing to version.'
+            echo 'versioned=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit --message 'chore: release packages'
+          echo 'versioned=true' >> "$GITHUB_OUTPUT"
+
+      # `changeset publish` skips every package whose version is already on the
+      # registry, so this is a no-op unless the step above bumped something (or
+      # an earlier run bumped it but failed to publish). Each published package
+      # gets a local release tag.
+      - name: Publish to npm
+        run: pnpm ci:publish
         env:
-          # PAT so the Release PR it creates is authored by a real identity whose
-          # later merge re-triggers this workflow's publish job (see checkout above).
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          # No NPM_TOKEN: publishing authenticates via npm OIDC trusted
-          # publishing (the `id-token: write` permission above). Configure each
-          # package's trusted publisher on npmjs.com to point at this workflow.
-          # Provenance is attested automatically from the same OIDC identity.
           NPM_CONFIG_PROVENANCE: 'true'
 
-      # Merge the Release PR so the version bump + publish run hands-off. Prefer
-      # auto-merge (waits for required checks) but fall back to an immediate
-      # merge: `gh pr merge --auto` is rejected when the PR is already mergeable,
-      # which is the case here because `main` has no required status checks.
-      # Either path is attributed to RELEASE_TOKEN so the merge re-triggers this
-      # workflow's publish run.
-      - name: Merge the Release PR
-        if: steps.changesets.outputs.pullRequestNumber != ''
-        run: gh pr merge --auto --squash "$PR_NUMBER" || gh pr merge --squash "$PR_NUMBER"
+      # Pushed only after a successful publish: when publishing fails the
+      # version commit stays local and the changesets are retried next run.
+      - name: Push the version commit
+        if: steps.version.outputs.versioned == 'true'
+        run: git push origin "HEAD:$BRANCH"
         env:
-          # PAT here too: the auto-merge must be attributed to the PAT identity so
-          # the merge push triggers the publish run. With GITHUB_TOKEN it merges
-          # but the merge is a no-op for Actions and nothing publishes.
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+          BRANCH: ${{ github.ref_name }}
+
+      - name: Push the release tags
+        run: git push origin --tags

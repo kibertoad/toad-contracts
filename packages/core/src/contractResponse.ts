@@ -176,7 +176,8 @@ export const noBodyResponse = (options?: ResponseOptions): NoBodyContentResponse
 
 /**
  * Declares an `application/json` response. Equivalent to using the schema directly as the
- * status code's value, but reachable when the response also needs a `description`.
+ * status code's value — structured `+json` suffixes such as `application/problem+json` resolve
+ * to it too — but reachable when the response also needs a `description`.
  */
 export const jsonResponse = <TSchema extends StandardSchemaV1>(
   schema: TSchema,
@@ -226,9 +227,10 @@ export type ResponseKind =
 
 /**
  * Extracts the lowercased media-type essence (the token before any `;` parameters) from a
- * content-type value, e.g. `'text/csv; charset=utf-8'` -> `'text/csv'`.
+ * content-type value, e.g. `'text/csv; charset=utf-8'` -> `'text/csv'`. Exported so consumers
+ * (mock helpers, servers) match media types exactly the way response resolution does.
  */
-const contentTypeEssence = (contentType: string): string => {
+export const contentTypeEssence = (contentType: string): string => {
   const semicolon = contentType.indexOf(";");
   const essence = semicolon === -1 ? contentType : contentType.slice(0, semicolon);
   return essence.trim().toLowerCase();
@@ -255,7 +257,9 @@ const descriptorToKind = (descriptor: BodyDescriptor): ResponseKind => {
  * Resolves a content-map {@link ResponseEntry}. Media types are matched by exact
  * (parameter-stripped, case-insensitive) equality, so e.g. `application/json` and
  * `application/json+01` stay distinct — a content map declares its variants explicitly,
- * so there is nothing to guess.
+ * so there is nothing to guess. The one exception is the structured `+json` suffix, which falls
+ * back to an `application/json` entry, keeping {@link jsonResponse} equivalent to the bare-schema
+ * shorthand.
  */
 const resolveContentEntry = (
   entry: ResponseEntry,
@@ -277,6 +281,21 @@ const resolveContentEntry = (
     for (const [mediaType, descriptor] of entries) {
       if (contentTypeEssence(mediaType) === target) {
         return descriptorToKind(descriptor);
+      }
+    }
+
+    // No exact match. An `application/json` key means the same thing as the bare-schema
+    // shorthand — "this is JSON" — so it also accepts structured `+json` suffixes such as
+    // `application/problem+json` and `application/vnd.api+json`. A contract that declares one of
+    // those media types explicitly still wins, since the exact match above runs first; unrelated
+    // types like `application/json+01` are not `+json` suffixes and stay distinct.
+    if (isJsonContentType(target)) {
+      const jsonDescriptor = entries.find(
+        ([mediaType]) => contentTypeEssence(mediaType) === "application/json",
+      )?.[1];
+
+      if (jsonDescriptor && isJsonBody(jsonDescriptor)) {
+        return descriptorToKind(jsonDescriptor);
       }
     }
   }

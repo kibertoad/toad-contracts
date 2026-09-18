@@ -149,6 +149,17 @@ stripped and case is ignored (`text/csv; charset=utf-8` matches `text/csv`), but
 media type of its own, only "this is JSON", so it accepts any JSON media type — including
 structured `+json` suffixes such as `application/problem+json`.
 
+An `application/json` key means the same thing as the shorthand, so it accepts those `+json`
+suffixes too, keeping `jsonResponse(schema)` equivalent to using `schema` directly. Declaring the
+suffixed media type explicitly still wins, since exact matches are tried first:
+
+```ts
+// `application/problem+json` resolves to the `application/json` schema…
+400: jsonResponse(problemSchema, { description: "RFC 7807 problem details" }),
+// …unless the contract declares it, which then takes precedence.
+409: { content: { "application/json": conflictSchema, "application/problem+json": problemSchema } },
+```
+
 A response whose `content-type` matches no declared media type is treated as unexpected. Clients
 can relax this with `strictContentType: false`, which falls back to the declared body for entries
 declaring exactly one.

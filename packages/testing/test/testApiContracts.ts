@@ -190,6 +190,22 @@ export const multiContentApiContract = defineApiContract({
   },
 });
 
+/** A dual-mode status code that may also answer with nothing at all. */
+export const optionalDualModeApiContract = defineApiContract({
+  method: "post",
+  requestBodySchema: REQUEST_BODY_SCHEMA,
+  pathResolver: () => "/events/dual-optional",
+  responsesByStatusCode: {
+    200: {
+      content: {
+        "application/json": RESPONSE_BODY_SCHEMA,
+        "text/event-stream": sseBody(SSE_SCHEMAS),
+      },
+      allowNoBody: true,
+    },
+  },
+});
+
 /** A status code that may answer with a body or with nothing at all. */
 export const optionalBodyApiContract = defineApiContract({
   method: "get",

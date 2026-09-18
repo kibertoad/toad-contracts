@@ -4,6 +4,7 @@ import {
   blobResponseApiContract,
   deleteApiContractWithNoBodyResponse,
   dualModeApiContract,
+  optionalDualModeApiContract,
   dualModeApiContractWithPathParams,
   getApiContract,
   getApiContractWith2xxRange,
@@ -200,6 +201,43 @@ describe("ApiContractMockttpHelper", () => {
         body: JSON.stringify({ name: "x" }),
       });
       expect(await response.json()).toEqual({ id: "2" });
+    });
+
+    it("serves JSON alone when a dual-mode entry allowing no body is mocked without events", async () => {
+      await helper.mockResponse(optionalDualModeApiContract, {
+        responseStatus: 200,
+        responseJson: { id: "1" },
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        headers: { accept: "text/event-stream" },
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.json()).toEqual({ id: "1" });
+    });
+
+    it("serves SSE alone when such an entry is mocked without responseJson", async () => {
+      await helper.mockResponse(optionalDualModeApiContract, {
+        responseStatus: 200,
+        events: [{ event: "completed", data: { totalCount: 1 } }],
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(countSseEvents(await response.text())).toBe(1);
+    });
+
+    it("serves an empty body when such an entry is mocked without any body", async () => {
+      await helper.mockResponse(optionalDualModeApiContract, {
+        responseStatus: 200,
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.text()).toBe("");
     });
   });
 

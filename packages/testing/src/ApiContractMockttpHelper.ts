@@ -1,6 +1,6 @@
 import { type ApiContract, resolveStatusEntry } from "@toad-contracts/core";
 import type { Mockttp, RequestRuleBuilder } from "mockttp";
-import { acceptsSse, mocksEmptyBody, planMockResponse } from "./planMockResponse.ts";
+import { planMockResponse, acceptsSse, selectMockBody } from "./planMockResponse.ts";
 import { formatSseResponse, type MockResponseParams } from "./types.ts";
 import { validateResponseBody, validateSseEvents } from "./validateResponseBody.ts";
 
@@ -59,52 +59,53 @@ export class ApiContractMockttpHelper {
 
     const mockRule = this.resolveMethodBuilder(contract.method, path);
     const plan = planMockResponse(responseEntry, anyParams.contentType);
-    const serveEmptyBody = mocksEmptyBody(plan, anyParams);
+    const selection = selectMockBody(plan, anyParams);
 
-    // A status code offering both JSON and SSE is answered per request, by `accept`, the way a
-    // real dual-mode route is; everything else has a single body to serve.
-    if (!serveEmptyBody && plan.json && plan.sse && plan.primaryKind !== "blob") {
-      const { json, sse } = plan;
+    switch (selection.kind) {
+      case "dual": {
+        const { json, sse } = selection;
 
-      await mockRule.thenCallback((request) =>
-        acceptsSse(request.headers.accept)
-          ? {
-              statusCode,
-              headers: { "content-type": "text/event-stream" },
-              body: formatSseResponse(validateSseEvents(sse.schemaByEventName, anyParams.events)),
-            }
-          : {
-              statusCode,
-              headers: { "content-type": json.contentType },
-              body: JSON.stringify(validateResponseBody(json.schema, anyParams.responseJson)),
-            },
-      );
-      return;
+        await mockRule.thenCallback((request) =>
+          acceptsSse(request.headers.accept)
+            ? {
+                statusCode,
+                headers: { "content-type": "text/event-stream" },
+                body: formatSseResponse(validateSseEvents(sse.schemaByEventName, anyParams.events)),
+              }
+            : {
+                statusCode,
+                headers: { "content-type": json.contentType },
+                body: JSON.stringify(validateResponseBody(json.schema, anyParams.responseJson)),
+              },
+        );
+        return;
+      }
+
+      case "sse": {
+        const body = formatSseResponse(
+          validateSseEvents(selection.sse.schemaByEventName, anyParams.events),
+        );
+        await mockRule.thenReply(statusCode, body, { "content-type": "text/event-stream" });
+        return;
+      }
+
+      case "blob":
+        await mockRule.thenReply(statusCode, anyParams.responseBlob, {
+          "content-type": selection.blob.contentType,
+        });
+        return;
+
+      case "json": {
+        const body = validateResponseBody(selection.json.schema, anyParams.responseJson);
+        await mockRule.thenReply(statusCode, JSON.stringify(body), {
+          "content-type": selection.json.contentType,
+        });
+        return;
+      }
+
+      case "empty":
+        await mockRule.thenReply(statusCode);
+        return;
     }
-
-    if (!serveEmptyBody && plan.sse && plan.primaryKind === "sse") {
-      const body = formatSseResponse(
-        validateSseEvents(plan.sse.schemaByEventName, anyParams.events),
-      );
-      await mockRule.thenReply(statusCode, body, { "content-type": "text/event-stream" });
-      return;
-    }
-
-    if (!serveEmptyBody && plan.blob && plan.primaryKind === "blob") {
-      await mockRule.thenReply(statusCode, anyParams.responseBlob, {
-        "content-type": plan.blob.contentType,
-      });
-      return;
-    }
-
-    if (!serveEmptyBody && plan.json && plan.primaryKind === "json") {
-      const body = validateResponseBody(plan.json.schema, anyParams.responseJson);
-      await mockRule.thenReply(statusCode, JSON.stringify(body), {
-        "content-type": plan.json.contentType,
-      });
-      return;
-    }
-
-    await mockRule.thenReply(statusCode);
   }
 }

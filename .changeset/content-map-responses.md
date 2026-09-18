@@ -15,7 +15,10 @@ A status code now maps either to a bare Standard Schema (the JSON shorthand, unc
 `{ description?, content: { '<media-type>': descriptor }, allowNoBody? }`, where a descriptor is a
 Standard Schema (JSON), `blobBody()`, or `sseBody(schemas)`. The client infers one response union
 member per declared media type, and media types are matched exactly, so `application/json` and
-`application/json+01` stay distinct variants of the same status code.
+`application/json+01` stay distinct variants of the same status code. An `application/json` key
+also accepts structured `+json` suffixes (`application/problem+json`, `application/vnd.api+json`)
+unless the contract declares that media type itself, which keeps `jsonResponse(schema)` equivalent
+to using the schema directly.
 
 Breaking changes:
 

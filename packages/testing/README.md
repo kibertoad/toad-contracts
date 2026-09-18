@@ -97,12 +97,16 @@ are inferred from the contract's response entry for that code:
 | `noBodyResponse()`                | _(none)_                               |
 
 A content map declaring several bodies asks for one field per kind, so a dual-mode (JSON + SSE)
-status code requires both `responseJson` and `events`. An entry that also sets `allowNoBody: true`
-makes every body field optional: omit them all to mock the empty response.
+status code requires both `responseJson` and `events`, and the mock answers by `accept` the way the
+real route does. An entry that also sets `allowNoBody: true` makes every body field optional: omit
+them all to mock the empty response, or supply just one to mock only that body.
 
 When a status code declares several variants of one kind (e.g. `application/json` and
-`application/json+01`), pass `contentType` to name the media type the mock should serve. Without
-it, the first media type the contract declares wins.
+`application/json+01`), pass `contentType` to name the media type the mock should serve. It is
+matched the way the client matches a response `content-type` — parameters stripped, case ignored —
+and must name a media type the status code declares; anything else throws, so a typo fails the test
+instead of silently mocking an empty body. Without it, the first media type the contract declares
+wins.
 
 ```ts
 await helper.mockResponse(getReport, {

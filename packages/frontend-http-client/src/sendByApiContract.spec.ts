@@ -621,6 +621,40 @@ describe("sendByApiContract", () => {
       await expect(result.result.body.cancel()).resolves.toBeUndefined();
     });
 
+    it("serves an empty body when a bodiless response matches a blob descriptor", async () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/export-empty.csv",
+        responsesByStatusCode: { 204: blobResponse("text/csv") },
+      });
+
+      await mockServer
+        .forGet("/export-empty.csv")
+        .thenReply(204, undefined, { "content-type": "text/csv" });
+
+      const result = await sendByApiContract(buildClient(), contract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      expect(await result.result.body.text()).toBe("");
+    });
+
+    it("exposes an empty stream for a bodiless response", async () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/export-empty-stream.csv",
+        responsesByStatusCode: { 204: blobResponse("text/csv") },
+      });
+
+      await mockServer
+        .forGet("/export-empty-stream.csv")
+        .thenReply(204, undefined, { "content-type": "text/csv" });
+
+      const result = await sendByApiContract(buildClient(), contract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      expect(await new Response(result.result.body.stream()).text()).toBe("");
+    });
+
     it("throws on a second accessor, since the body is one-shot", async () => {
       await replyWithCsv();
 

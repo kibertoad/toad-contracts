@@ -196,6 +196,40 @@ describe("resolveContractResponse", () => {
       });
     });
 
+    it("resolves structured +json suffixes to the application/json entry", () => {
+      const schema = object({ error: string() });
+
+      expect(resolveContractResponse(jsonResponse(schema), "application/problem+json")).toEqual({
+        kind: "json",
+        schema,
+      });
+      expect(
+        resolveContractResponse(jsonResponse(schema), "application/vnd.api+json; charset=utf-8"),
+      ).toEqual({ kind: "json", schema });
+    });
+
+    it("prefers an explicitly declared +json media type over the application/json entry", () => {
+      const canonical = object({ id: string() });
+      const problem = object({ detail: string() });
+      const entry = {
+        content: { "application/json": canonical, "application/problem+json": problem },
+      };
+
+      expect(resolveContractResponse(entry, "application/problem+json")).toEqual({
+        kind: "json",
+        schema: problem,
+      });
+    });
+
+    it("does not resolve a +json response against a non-JSON descriptor", () => {
+      expect(
+        resolveContractResponse(
+          { content: { "application/json": blobBody(), "image/png": blobBody() } },
+          "application/problem+json",
+        ),
+      ).toBeNull();
+    });
+
     it("returns null when no declared media type matches", () => {
       expect(resolveContractResponse(blobResponse("image/png"), "application/json")).toBeNull();
       expect(

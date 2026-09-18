@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   deleteApiContractWithNoBodyResponse,
   dualModeApiContract,
+  optionalDualModeApiContract,
   getApiContract,
   getApiContractWith2xxRange,
   getApiContractWithDefault,
@@ -115,6 +116,17 @@ describe("MswHelper", () => {
       expect(await response.json()).toEqual({ id: "1", created: true });
     });
 
+    it("throws when contentType names a media type the status code does not declare", () => {
+      expect(() =>
+        helper.mockResponse(multiContentApiContract, server, {
+          responseStatus: 200,
+          contentType: "application/jsonn",
+          responseJson: { id: "1" },
+          responseBlob: "%PDF-",
+        }),
+      ).toThrow(/is not declared for this response/);
+    });
+
     it("serves an opaque media type named by contentType", async () => {
       helper.mockResponse(multiContentApiContract, server, {
         responseStatus: 200,
@@ -211,6 +223,41 @@ describe("MswHelper", () => {
       });
       expect(response.headers.get("content-type")).toBe("text/event-stream");
       expect(countSseEvents(await response.text())).toBe(1);
+    });
+
+    it("serves JSON alone when a dual-mode entry allowing no body is mocked without events", async () => {
+      helper.mockResponse(optionalDualModeApiContract, server, {
+        responseStatus: 200,
+        responseJson: { id: "1" },
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        headers: { accept: "text/event-stream" },
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.json()).toEqual({ id: "1" });
+    });
+
+    it("serves SSE alone when such an entry is mocked without responseJson", async () => {
+      helper.mockResponse(optionalDualModeApiContract, server, {
+        responseStatus: 200,
+        events: [{ event: "completed", data: { totalCount: 1 } }],
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(countSseEvents(await response.text())).toBe(1);
+    });
+
+    it("serves an empty body when such an entry is mocked without any body", async () => {
+      helper.mockResponse(optionalDualModeApiContract, server, { responseStatus: 200 });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.text()).toBe("");
     });
   });
 

@@ -138,6 +138,14 @@ async function* parseSseStream(
   }
 }
 
+/** An already-closed stream, standing in for the absent body of a bodiless response. */
+const emptyBodyStream = (): ReadableStream<Uint8Array> =>
+  new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.close();
+    },
+  });
+
 /**
  * Wraps a Fetch {@link Response} — which already implements the accessor surface — in a lazy,
  * single-consume {@link BlobResponseHandle}. The guard makes the one-shot nature explicit: the
@@ -145,14 +153,10 @@ async function* parseSseStream(
  * "body already used" error.
  */
 function toBlobHandle(response: Response): BlobResponseHandle {
-  // A materialized fetch response always exposes a body stream; this only narrows the
-  // `ReadableStream | null` type and is unreachable in practice.
-  /* v8 ignore start */
-  if (!response.body) {
-    throw new Error("Response body is null");
-  }
-  /* v8 ignore stop */
-  const stream = response.body;
+  // A bodiless response (204, 205, 304) matched to a blob descriptor exposes `body: null`. The
+  // buffering accessors handle that themselves — `blob()`/`text()`/`arrayBuffer()` yield an empty
+  // body — so only `stream()`/`cancel()` need a stand-in.
+  const stream = response.body ?? emptyBodyStream();
 
   let consumed = false;
   const claim = (): void => {

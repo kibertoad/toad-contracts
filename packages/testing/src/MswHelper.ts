@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type ApiContract,
   type InferSchemaInput,
@@ -9,7 +8,13 @@ import {
 } from "@toad-contracts/core";
 import { HttpResponse, http, type JsonBodyType } from "msw";
 import type { SetupServer } from "msw/node";
-import { acceptsSse, mocksEmptyBody, planMockResponse } from "./planMockResponse.ts";
+import {
+  acceptsSse,
+  type MockJsonTarget,
+  type MockSseTarget,
+  planMockResponse,
+  selectMockBody,
+} from "./planMockResponse.ts";
 import { formatSseResponse, type MockResponseParams, type SseMockEventInput } from "./types.ts";
 import {
   validateResponseBody,
@@ -82,9 +87,9 @@ export class MswHelper {
 
     const method = contract.method as HttpMethod;
     const plan = planMockResponse(responseEntry, anyParams.contentType);
-    const serveEmptyBody = mocksEmptyBody(plan, anyParams);
+    const selection = selectMockBody(plan, anyParams);
 
-    const jsonResponse = (schema: StandardSchemaV1, contentType: string) =>
+    const jsonHttpResponse = ({ schema, contentType }: MockJsonTarget) =>
       HttpResponse.json(validateResponseBody(schema, anyParams.responseJson) as JsonBodyType, {
         status: statusCode,
         headers: { "content-type": contentType },
@@ -92,7 +97,7 @@ export class MswHelper {
 
     // Events are validated here rather than inside the handler, so an event that violates the
     // contract fails the test at `mockResponse` instead of at request time.
-    const sseBodyFor = (schemaByEventName: SseSchemaByEventName) =>
+    const sseBodyFor = ({ schemaByEventName }: MockSseTarget) =>
       formatSseResponse(validateSseEvents(schemaByEventName, anyParams.events));
 
     const sseHttpResponse = (body: string) =>
@@ -101,50 +106,52 @@ export class MswHelper {
         headers: { "content-type": "text/event-stream" },
       });
 
-    // A status code offering both JSON and SSE is answered per request, by `accept`, the way a
-    // real dual-mode route is; everything else has a single body to serve.
-    if (!serveEmptyBody && plan.json && plan.sse && plan.primaryKind !== "blob") {
-      const { json, sse } = plan;
-      const sseBody = sseBodyFor(sse.schemaByEventName);
+    switch (selection.kind) {
+      case "dual": {
+        const { json, sse } = selection;
+        const sseBody = sseBodyFor(sse);
 
-      server.use(
-        http[method](url, ({ request }) =>
-          acceptsSse(request.headers.get("accept") ?? undefined)
-            ? sseHttpResponse(sseBody)
-            : jsonResponse(json.schema, json.contentType),
-        ),
-      );
-      return;
+        server.use(
+          http[method](url, ({ request }) =>
+            acceptsSse(request.headers.get("accept") ?? undefined)
+              ? sseHttpResponse(sseBody)
+              : jsonHttpResponse(json),
+          ),
+        );
+        return;
+      }
+
+      case "sse": {
+        const sseBody = sseBodyFor(selection.sse);
+        server.use(http[method](url, () => sseHttpResponse(sseBody)));
+        return;
+      }
+
+      case "blob": {
+        const { contentType } = selection.blob;
+        server.use(
+          http[method](
+            url,
+            () =>
+              new HttpResponse(anyParams.responseBlob, {
+                status: statusCode,
+                headers: { "content-type": contentType },
+              }),
+          ),
+        );
+        return;
+      }
+
+      case "json": {
+        const { json } = selection;
+        server.use(http[method](url, () => jsonHttpResponse(json)));
+        return;
+      }
+
+      case "empty":
+        server.use(http[method](url, () => new HttpResponse(null, { status: statusCode })));
+        return;
     }
-
-    if (!serveEmptyBody && plan.sse && plan.primaryKind === "sse") {
-      const sseBody = sseBodyFor(plan.sse.schemaByEventName);
-      server.use(http[method](url, () => sseHttpResponse(sseBody)));
-      return;
-    }
-
-    if (!serveEmptyBody && plan.blob && plan.primaryKind === "blob") {
-      const { blob } = plan;
-      server.use(
-        http[method](
-          url,
-          () =>
-            new HttpResponse(anyParams.responseBlob, {
-              status: statusCode,
-              headers: { "content-type": blob.contentType },
-            }),
-        ),
-      );
-      return;
-    }
-
-    if (!serveEmptyBody && plan.json && plan.primaryKind === "json") {
-      const { json } = plan;
-      server.use(http[method](url, () => jsonResponse(json.schema, json.contentType)));
-      return;
-    }
-
-    server.use(http[method](url, () => new HttpResponse(null, { status: statusCode })));
   }
 
   /**

@@ -1,7 +1,12 @@
 import { blobBody, blobResponse, noBodyResponse, sseBody, sseResponse } from "@toad-contracts/core";
 import { number, object, string } from "valibot";
 import { describe, expect, it } from "vitest";
-import { acceptsSse, mocksEmptyBody, planMockResponse } from "./planMockResponse.ts";
+import {
+  acceptsSse,
+  mocksEmptyBody,
+  planMockResponse,
+  selectMockBody,
+} from "./planMockResponse.ts";
 
 describe("planMockResponse", () => {
   it("treats a bare Standard Schema as an application/json body", () => {
@@ -64,11 +69,21 @@ describe("planMockResponse", () => {
     expect(plan.json).toEqual({ contentType: "application/json+01", schema: vendored });
   });
 
-  it("yields no body target when the preferred media type is not declared", () => {
-    const plan = planMockResponse(blobResponse("image/png"), "text/plain");
+  it("matches the preferred media type the way response resolution does", () => {
+    const schema = object({ id: string() });
+    const plan = planMockResponse(
+      { content: { "application/json": schema, "application/pdf": blobBody() } },
+      "Application/JSON; charset=utf-8",
+    );
 
-    expect(plan.primaryKind).toBeUndefined();
+    expect(plan.json).toEqual({ contentType: "application/json", schema });
     expect(plan.blob).toBeUndefined();
+  });
+
+  it("throws when the preferred media type is not declared", () => {
+    expect(() => planMockResponse(blobResponse("image/png"), "text/plain")).toThrow(
+      /Content type 'text\/plain' is not declared.*image\/png/,
+    );
   });
 
   it("marks a no-body entry", () => {
@@ -106,6 +121,62 @@ describe("mocksEmptyBody", () => {
 
   it("is false for an entry that does not allow an absent body", () => {
     expect(mocksEmptyBody(planMockResponse(object({ id: string() })), {})).toBe(false);
+  });
+});
+
+describe("selectMockBody", () => {
+  const jsonSchema = object({ id: string() });
+  const schemaByEventName = { tick: object({ count: number() }) };
+
+  const dualPlan = (extra?: { allowNoBody?: boolean }) =>
+    planMockResponse({
+      content: {
+        "application/json": jsonSchema,
+        "text/event-stream": sseBody(schemaByEventName),
+      },
+      ...extra,
+    });
+
+  it("answers a dual-mode entry by accept when both bodies are mocked", () => {
+    const selection = selectMockBody(dualPlan(), { responseJson: { id: "1" }, events: [] });
+
+    expect(selection).toMatchObject({ kind: "dual" });
+  });
+
+  it("serves the single body a dual-mode entry was mocked with", () => {
+    const plan = dualPlan({ allowNoBody: true });
+
+    expect(selectMockBody(plan, { responseJson: { id: "1" } })).toMatchObject({ kind: "json" });
+    expect(selectMockBody(plan, { events: [] })).toMatchObject({ kind: "sse" });
+  });
+
+  it("serves the empty body when an entry allowing one is mocked without a body", () => {
+    expect(selectMockBody(dualPlan({ allowNoBody: true }), {})).toEqual({ kind: "empty" });
+  });
+
+  it("falls back to the first declared media type when no body was supplied", () => {
+    expect(selectMockBody(dualPlan(), {})).toMatchObject({ kind: "json" });
+    expect(selectMockBody(planMockResponse(noBodyResponse()), {})).toEqual({ kind: "empty" });
+  });
+
+  it("serves the empty body for a no-body entry mocked with an explicit null body", () => {
+    expect(selectMockBody(planMockResponse(noBodyResponse()), { responseJson: null })).toEqual({
+      kind: "empty",
+    });
+  });
+
+  it("prefers the first declared media type when several bodies are supplied", () => {
+    const plan = planMockResponse({
+      content: {
+        "application/pdf": blobBody(),
+        "application/json": jsonSchema,
+        "text/event-stream": sseBody(schemaByEventName),
+      },
+    });
+
+    expect(
+      selectMockBody(plan, { responseBlob: "raw", responseJson: { id: "1" }, events: [] }),
+    ).toMatchObject({ kind: "blob" });
   });
 });
 

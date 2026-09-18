@@ -6,8 +6,11 @@ import type {
   SuccessfulHttpStatusCode,
   WildcardStatusCodeKey,
 } from "./HttpStatusCodes.ts";
-import type { ContractNoBody } from "./constants.ts";
-import type { ResponsesByStatusCode, SseSchemaByEventName } from "./contractResponse.ts";
+import type {
+  BlobResponseHandle,
+  ResponsesByStatusCode,
+  SseSchemaByEventName,
+} from "./contractResponse.ts";
 import type { ApiContract } from "./defineApiContract.ts";
 import type { ContractResponseMode, SseEventOf } from "./inferTypes.ts";
 import type { InferSchemaInput, InferSchemaOutput } from "./schemaTypes.ts";
@@ -59,46 +62,65 @@ type InferClientResponseHeaders<TApiContract extends ApiContract> =
     : Record<string, string>;
 
 /**
- * Maps a single responsesByStatusCode entry value to its TypeScript body type.
- * Both no-body forms (the ContractNoBody symbol and tagged noBodyResponse()) map to null.
+ * Maps a bare-schema (JSON shorthand) responsesByStatusCode entry to its TypeScript body type.
+ * Every other body kind — no-body, blob, SSE — is declared through a content-map entry.
  */
-type InferClientResponseBody<T> = T extends typeof ContractNoBody
-  ? null
-  : T extends { _tag: "NoBodyResponse" }
-    ? null
-    : T extends StandardSchemaV1
-      ? InferSchemaOutput<T>
-      : T extends { _tag: "TextResponse" }
-        ? string
-        : T extends { _tag: "BlobResponse" }
-          ? Blob
-          : T extends { _tag: "StreamResponse" }
-            ? ReadableStream<Uint8Array>
-            : T extends {
-                  _tag: "SseResponse";
-                  schemaByEventName: infer S extends SseSchemaByEventName;
-                }
-              ? AsyncIterable<SseEventOf<S>>
-              : T extends { _tag: "AnyOfResponses"; responses: Array<infer Item> }
-                ? InferClientResponseBody<Item>
-                : never;
+type InferClientResponseBody<T> = T extends StandardSchemaV1 ? InferSchemaOutput<T> : never;
 
 /**
- * Structural shape every SSE event body shares (browser MessageEvent-aligned). Used to separate
- * SSE bodies from other async-iterable bodies, notably `ReadableStream<Uint8Array>` from
- * `streamResponse`, which is `AsyncIterable<Uint8Array>` and must stay on the non-SSE side.
+ * Structural shape every SSE event body shares (browser MessageEvent-aligned), used to split SSE
+ * bodies from the rest. A blob body resolves to a non-iterable `BlobResponseHandle`, so SSE is the
+ * only body that async-iterates event objects.
  */
 type SseBodyShape = AsyncIterable<{ type: string; lastEventId: string }>;
 
-/**
- * Like InferClientResponseBody but returns only SSE bodies; non-SSE entries resolve to never.
- */
-type SseInferClientResponseBody<T> = Extract<InferClientResponseBody<T>, SseBodyShape>;
+/** The client-side body type a single content-map descriptor materializes into. */
+type InferContentDescriptorBody<TDescriptor> = TDescriptor extends { _tag: "BlobBody" }
+  ? BlobResponseHandle
+  : TDescriptor extends { _tag: "SseBody"; schemaByEventName: infer S extends SseSchemaByEventName }
+    ? AsyncIterable<SseEventOf<S>>
+    : TDescriptor extends StandardSchemaV1
+      ? InferSchemaOutput<TDescriptor>
+      : never;
 
 /**
- * Like InferClientResponseBody but returns only non-SSE bodies; SSE entries resolve to never.
+ * Expands a content-map entry into one `{ body }` variant per declared media type, plus a
+ * `{ body: null }` variant when the entry sets `allowNoBody`.
  */
-type NonSseInferClientResponseBody<T> = Exclude<InferClientResponseBody<T>, SseBodyShape>;
+type ContentEntryVariants<TEntry> =
+  | (TEntry extends { content: infer C }
+      ? { [CT in keyof C & string]: { body: InferContentDescriptorBody<C[CT]> } }[keyof C & string]
+      : never)
+  | (TEntry extends { allowNoBody: true } ? { body: null } : never);
+
+type IsContentEntry<V> = V extends { content: object }
+  ? true
+  : V extends { allowNoBody: true }
+    ? true
+    : false;
+
+type SseContentVariants<TEntry> = Extract<ContentEntryVariants<TEntry>, { body: SseBodyShape }>;
+type NonSseContentVariants<TEntry> = Exclude<ContentEntryVariants<TEntry>, { body: SseBodyShape }>;
+
+/** Response mode for a given status class: success codes filter by SSE/non-SSE; others pass all. */
+type ResponseBodyMode = "sse" | "non-sse" | "all";
+
+type ContentVariantsForMode<TEntry, TMode extends ResponseBodyMode> = TMode extends "sse"
+  ? SseContentVariants<TEntry>
+  : TMode extends "non-sse"
+    ? NonSseContentVariants<TEntry>
+    : ContentEntryVariants<TEntry>;
+
+// A bare-schema entry is JSON by definition, so it contributes nothing in SSE mode and its body
+// as-is in every other mode.
+type JsonBodyForMode<V, TMode extends ResponseBodyMode> = TMode extends "sse"
+  ? never
+  : InferClientResponseBody<V>;
+
+/** Attaches `statusCode` + `headers` to each `{ body }` variant, dropping `never` variants. */
+type WithMeta<TStatusCode, THeaders, TVariant> = TVariant extends unknown
+  ? Prettify<{ statusCode: TStatusCode; headers: THeaders } & TVariant>
+  : never;
 
 /**
  * Builds a `{ statusCode, headers, body }` discriminated-union member, collapsing to `never` (which
@@ -106,23 +128,18 @@ type NonSseInferClientResponseBody<T> = Exclude<InferClientResponseBody<T>, SseB
  * happens for a non-SSE success code viewed in SSE mode, or an SSE-only success code viewed in
  * non-SSE mode, without which the member would survive with an unusable `body: never`.
  */
-type ResponseEntry<TStatusCode, THeaders, TBody> = [TBody] extends [never]
+type JsonMember<TStatusCode, THeaders, TBody> = [TBody] extends [never]
   ? never
   : { statusCode: TStatusCode; headers: THeaders; body: TBody };
 
-// Body helpers for non-'default' wildcard range keys (e.g. '2xx', '4xx', '5xx').
-// '2xx' maps to success mode (SSE-filtered or non-SSE-filtered); all other ranges use the full body
-// union because non-2xx range entries always land on the error side of captureAsError.
-// 'default' does not use these helpers; it inlines its own body logic in WildcardSseEntry /
-// WildcardNonSseEntry, where the success half is still SSE/non-SSE filtered and the non-success
-// half uses the full body union.
-type WildcardSseBody<V, K extends WildcardStatusCodeKey> = K extends "2xx"
-  ? SseInferClientResponseBody<V>
-  : InferClientResponseBody<V>;
-
-type WildcardNonSseBody<V, K extends WildcardStatusCodeKey> = K extends "2xx"
-  ? NonSseInferClientResponseBody<V>
-  : InferClientResponseBody<V>;
+/**
+ * Builds the response union member(s) for a status code holding entry `V`. A content-map entry
+ * expands to one member per media type; a bare-schema entry yields the single JSON member.
+ */
+type ResponseMember<TStatusCode, THeaders, V, TMode extends ResponseBodyMode> =
+  IsContentEntry<V> extends true
+    ? WithMeta<TStatusCode, THeaders, ContentVariantsForMode<V, TMode>>
+    : JsonMember<TStatusCode, THeaders, JsonBodyForMode<V, TMode>>;
 
 // Exact status codes explicitly defined in the contract; these take precedence over range keys.
 type ExactStatusCodes<TApiContract extends ApiContract> =
@@ -151,20 +168,23 @@ type WildcardSseEntry<
   K extends WildcardStatusCodeKey,
 > = K extends "default"
   ?
-      | ResponseEntry<
+      | ResponseMember<
           DefaultSuccessStatusCodes<TApiContract>,
           InferClientResponseHeaders<TApiContract>,
-          SseInferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
+          NonNullable<TApiContract["responsesByStatusCode"][K]>,
+          "sse"
         >
-      | ResponseEntry<
+      | ResponseMember<
           DefaultNonSuccessStatusCodes<TApiContract>,
           InferClientResponseHeaders<TApiContract>,
-          InferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
+          NonNullable<TApiContract["responsesByStatusCode"][K]>,
+          "all"
         >
-  : ResponseEntry<
+  : ResponseMember<
       Exclude<ExpandStatusRangeKey<K>, ExactStatusCodes<TApiContract>>,
       InferClientResponseHeaders<TApiContract>,
-      WildcardSseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>, K>
+      NonNullable<TApiContract["responsesByStatusCode"][K]>,
+      K extends "2xx" ? "sse" : "all"
     >;
 
 type WildcardNonSseEntry<
@@ -172,20 +192,23 @@ type WildcardNonSseEntry<
   K extends WildcardStatusCodeKey,
 > = K extends "default"
   ?
-      | ResponseEntry<
+      | ResponseMember<
           DefaultSuccessStatusCodes<TApiContract>,
           InferClientResponseHeaders<TApiContract>,
-          NonSseInferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
+          NonNullable<TApiContract["responsesByStatusCode"][K]>,
+          "non-sse"
         >
-      | ResponseEntry<
+      | ResponseMember<
           DefaultNonSuccessStatusCodes<TApiContract>,
           InferClientResponseHeaders<TApiContract>,
-          InferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
+          NonNullable<TApiContract["responsesByStatusCode"][K]>,
+          "all"
         >
-  : ResponseEntry<
+  : ResponseMember<
       Exclude<ExpandStatusRangeKey<K>, ExactStatusCodes<TApiContract>>,
       InferClientResponseHeaders<TApiContract>,
-      WildcardNonSseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>, K>
+      NonNullable<TApiContract["responsesByStatusCode"][K]>,
+      K extends "2xx" ? "non-sse" : "all"
     >;
 
 /**
@@ -201,12 +224,11 @@ type WildcardNonSseEntry<
  */
 export type InferSseClientResponse<TApiContract extends ApiContract> =
   | {
-      [K in keyof TApiContract["responsesByStatusCode"] & HttpStatusCode]: ResponseEntry<
+      [K in keyof TApiContract["responsesByStatusCode"] & HttpStatusCode]: ResponseMember<
         K,
         InferClientResponseHeaders<TApiContract>,
-        K extends SuccessfulHttpStatusCode
-          ? SseInferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
-          : InferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
+        NonNullable<TApiContract["responsesByStatusCode"][K]>,
+        K extends SuccessfulHttpStatusCode ? "sse" : "all"
       >;
     }[keyof TApiContract["responsesByStatusCode"] & HttpStatusCode]
   | {
@@ -218,7 +240,7 @@ export type InferSseClientResponse<TApiContract extends ApiContract> =
 
 /**
  * Infers a discriminated union of `{ statusCode, headers, body }` for non-SSE mode:
- * - exact success status codes and `'2xx'` range → non-SSE body only (JSON / text / blob / stream / null)
+ * - exact success status codes and `'2xx'` range → non-SSE body only (JSON / blob / null)
  * - error status codes, other ranges, and `'default'` → body as-is (all kinds)
  *
  * `'default'` is split into a success half (`SuccessfulHttpStatusCode`) and a non-success half
@@ -229,12 +251,11 @@ export type InferSseClientResponse<TApiContract extends ApiContract> =
  */
 export type InferNonSseClientResponse<TApiContract extends ApiContract> =
   | {
-      [K in keyof TApiContract["responsesByStatusCode"] & HttpStatusCode]: ResponseEntry<
+      [K in keyof TApiContract["responsesByStatusCode"] & HttpStatusCode]: ResponseMember<
         K,
         InferClientResponseHeaders<TApiContract>,
-        K extends SuccessfulHttpStatusCode
-          ? NonSseInferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
-          : InferClientResponseBody<NonNullable<TApiContract["responsesByStatusCode"][K]>>
+        NonNullable<TApiContract["responsesByStatusCode"][K]>,
+        K extends SuccessfulHttpStatusCode ? "non-sse" : "all"
       >;
     }[keyof TApiContract["responsesByStatusCode"] & HttpStatusCode]
   | {

@@ -1,17 +1,12 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
-  AnyOfResponses,
   ApiContract,
   ExpandStatusRangeKey,
   HttpStatusCode,
   InferSchemaInput,
-  NoBodyResponse,
   RequestPathParamsSchema,
+  ResponseContentType,
   SseSchemaByEventName,
-  TypedBlobResponse,
-  TypedSseResponse,
-  TypedStreamResponse,
-  TypedTextResponse,
   WildcardStatusCodeKey,
 } from "@toad-contracts/core";
 
@@ -42,46 +37,55 @@ export function formatSseResponse(events: SseMockEvent[]): string {
     .join("");
 }
 
-// Maps a single responsesByStatusCode entry to the body field(s) the mock needs.
-// ContractNoBody (symbol)  → no required body field
-// NoBodyResponse           → no required body field
-// TypedSseResponse         → { events }
-// TypedTextResponse        → { responseText }
-// TypedBlobResponse        → { responseBlob }
-// TypedStreamResponse      → { responseStream }
-// AnyOfResponses           → { responseJson?; events? } for dual-mode (SSE + JSON)
-// StandardSchemaV1 (JSON)  → { responseJson }
-type InferBodyParam<T> = T extends symbol
-  ? { responseJson?: null }
-  : T extends NoBodyResponse
-    ? { responseJson?: null }
-    : T extends TypedSseResponse<infer S extends SseSchemaByEventName>
-      ? { events: SseMockEventInput<S>[] }
-      : T extends TypedTextResponse
-        ? { responseText: string }
-        : T extends TypedBlobResponse
-          ? { responseBlob: string }
-          : T extends TypedStreamResponse
-            ? { responseStream: string }
-            : T extends AnyOfResponses<infer Items>
-              ? AnyOfBodyParam<Items>
-              : T extends StandardSchemaV1
-                ? { responseJson: StandardSchemaV1.InferInput<T> }
-                : object;
-
-// Combines the JSON and SSE body fields contributed by the members of an anyOfResponses entry.
-// A member that is a JSON schema contributes `responseJson`; an SSE member contributes `events`.
-// Members of any other kind (text/blob/stream) contribute nothing.
-type AnyOfBodyParam<Items> = (Extract<Items, StandardSchemaV1> extends never
-  ? object
-  : { responseJson: StandardSchemaV1.InferInput<Extract<Items, StandardSchemaV1>> }) &
-  ([Extract<Items, TypedSseResponse>] extends [never]
+// The JSON bodies a content map declares. Several JSON media types on one status code contribute
+// a union of input types; `contentType` picks which one the mock actually serves.
+type JsonBodyParam<TContent> =
+  Extract<TContent[keyof TContent], StandardSchemaV1> extends never
     ? object
-    : Extract<Items, TypedSseResponse> extends TypedSseResponse<
-          infer S extends SseSchemaByEventName
-        >
-      ? { events: SseMockEventInput<S>[] }
-      : object);
+    : {
+        responseJson: StandardSchemaV1.InferInput<
+          Extract<TContent[keyof TContent], StandardSchemaV1>
+        >;
+      };
+
+// An opaque body is mocked verbatim: the helpers send the value as-is under the declared media type.
+type BlobBodyParam<TContent> = [Extract<TContent[keyof TContent], { _tag: "BlobBody" }>] extends [
+  never,
+]
+  ? object
+  : { responseBlob: string | Uint8Array };
+
+type SseBodyParam<TContent> = [Extract<TContent[keyof TContent], { _tag: "SseBody" }>] extends [
+  never,
+]
+  ? object
+  : Extract<TContent[keyof TContent], { _tag: "SseBody" }> extends {
+        schemaByEventName: infer S extends SseSchemaByEventName;
+      }
+    ? { events: SseMockEventInput<S>[] }
+    : object;
+
+type ContentBodyParam<TContent> = JsonBodyParam<TContent> &
+  BlobBodyParam<TContent> &
+  SseBodyParam<TContent>;
+
+// Maps a single responsesByStatusCode entry to the body field(s) the mock needs:
+// content map              → one field per declared body kind (all optional with allowNoBody)
+// allowNoBody-only entry   → no required body field
+// bare Standard Schema     → { responseJson }
+// A content map declaring both JSON and SSE asks for both fields, and the mock answers by `accept`,
+// the way the real dual-mode route does.
+type InferBodyParam<T> = T extends { content: infer TContent }
+  ? // An entry that also allows an absent body accepts either: omit every body field to mock the
+    // empty response, or supply one to mock the body.
+    T extends { allowNoBody: true }
+    ? Partial<ContentBodyParam<TContent>>
+    : ContentBodyParam<TContent>
+  : T extends { allowNoBody: true }
+    ? { responseJson?: null }
+    : T extends StandardSchemaV1
+      ? { responseJson: StandardSchemaV1.InferInput<T> }
+      : object;
 
 type ExactStatusCodePairs<TContract extends ApiContract> = {
   [K in keyof TContract["responsesByStatusCode"] & HttpStatusCode]: {
@@ -111,6 +115,11 @@ type PathParamsField<TContract extends ApiContract> =
  * Parameters accepted by `mockResponse`, derived from a contract. A discriminated union on
  * `responseStatus`: each concrete status code (or wildcard range) carries exactly the body fields
  * its declared response kind requires.
+ *
+ * `contentType` narrows a status code declaring several variants of one kind (e.g. both
+ * `application/json` and `application/json+01`) to the single media type the mock should serve.
+ * Without it, the first declared media type of each kind wins.
  */
-export type MockResponseParams<TContract extends ApiContract> = PathParamsField<TContract> &
-  StatusCodeBodyPair<TContract>;
+export type MockResponseParams<TContract extends ApiContract> = PathParamsField<TContract> & {
+  contentType?: ResponseContentType;
+} & StatusCodeBodyPair<TContract>;

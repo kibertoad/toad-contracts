@@ -62,53 +62,116 @@ const deleteUser = defineApiContract({
 });
 ```
 
-### Non-JSON responses
+### Response entries: the content map
 
-For responses that are not JSON, three wrappers record the response `content-type` in the contract
-and differ only in the JS type the client materializes the body into:
+A status code maps either to a bare schema — the JSON shorthand, covering the common case with no
+ceremony — or to an OpenAPI-shaped `{ content }` entry keyed by media type. The content map is what
+lets a single status code carry more than one body: JSON _and_ a downloadable rendering, JSON _and_
+an SSE stream, even several JSON variants, each matched by an exact `content-type`.
 
-- `textResponse(contentType)` → `string`. Convenient for small text payloads (CSV, plain text).
-- `blobResponse(contentType)` → `Blob`. Buffered; offers `.text()`, `.arrayBuffer()`, `.stream()`.
-- `streamResponse(contentType)` → `ReadableStream<Uint8Array>`. Zero buffering; stream large
-  payloads directly, or wrap for convenience via `new Response(body).text()` / `.blob()` /
-  `.arrayBuffer()`.
+A media type's value is a **body descriptor**:
+
+| Descriptor         | Declares                    | The client receives    |
+| ------------------ | --------------------------- | ---------------------- |
+| a Standard Schema  | a JSON body, validated      | the schema's output    |
+| `blobBody()`       | an opaque body              | `BlobResponseHandle`   |
+| `sseBody(schemas)` | a Server-Sent Events stream | `AsyncIterable<Event>` |
+
+Three factories cover the single-media-type cases, so most contracts never write a content map by
+hand: `jsonResponse(schema)`, `blobResponse(contentType)`, `sseResponse(schemas)`, plus
+`noBodyResponse()` for a status code that carries nothing.
 
 ```ts
-import {
-  defineApiContract,
-  textResponse,
-  blobResponse,
-  streamResponse,
-} from "@toad-contracts/core";
+import { blobBody, blobResponse, defineApiContract, noBodyResponse } from "@toad-contracts/core";
+import { object, string } from "valibot";
 
-const exportCsv = defineApiContract({
-  method: "get",
-  pathResolver: () => "/export.csv",
-  responsesByStatusCode: { 200: textResponse("text/csv") },
-});
-
+// A single opaque body
 const downloadPhoto = defineApiContract({
   method: "get",
   pathResolver: () => "/photo.png",
   responsesByStatusCode: { 200: blobResponse("image/png") },
 });
 
-// large export streamed without buffering the whole body in memory
-const streamExport = defineApiContract({
+// One status code, several media types
+const getReport = defineApiContract({
   method: "get",
-  pathResolver: () => "/export-large.csv",
-  responsesByStatusCode: { 200: streamResponse("text/csv") },
+  pathResolver: () => "/report",
+  responsesByStatusCode: {
+    200: {
+      description: "The report as data, or rendered for download",
+      content: {
+        "application/json": object({ id: string(), title: string() }),
+        "application/pdf": blobBody(),
+      },
+    },
+    204: noBodyResponse(),
+  },
 });
 ```
+
+The response type the client infers is a discriminated union with **one member per media type**, so
+narrowing on the body picks the variant the server actually sent:
+
+```ts
+const { result } = await sendByApiContract(client, getReport, {});
+// result?.body is { id: string; title: string } | BlobResponseHandle | undefined
+```
+
+An entry may also set `allowNoBody: true` alongside its `content`, for a status code that sometimes
+answers with nothing; that contributes a `body: null` variant.
+
+#### Non-JSON bodies
+
+`blobBody()` is the single descriptor for every non-JSON, non-SSE body, whatever its size. The
+client resolves it to a `BlobResponseHandle`: a lazy, single-consume accessor over the response
+body, so the _caller_ decides how to materialize it rather than the contract deciding for them.
+
+```ts
+const { result } = await sendByApiContract(client, exportCsv, {});
+if (result) {
+  await result.body.text(); // decode as UTF-8
+  await result.body.blob(); // buffer into a Blob
+  await result.body.arrayBuffer(); // buffer into an ArrayBuffer
+  result.body.stream(); // ReadableStream<Uint8Array>, nothing buffered
+  await result.body.cancel(); // discard, releasing the connection
+}
+```
+
+The body is a one-shot stream: the first accessor consumes it and a second throws. Draining it (any
+accessor except a lazy `stream()`, or `cancel()`) is also what releases the connection — a handle
+you never touch keeps it open.
+
+#### Content-type matching
+
+A content map declares its media types explicitly, so they are matched exactly: parameters are
+stripped and case is ignored (`text/csv; charset=utf-8` matches `text/csv`), but
+`application/json` and `application/json+01` stay distinct. The bare-schema shorthand declares no
+media type of its own, only "this is JSON", so it accepts any JSON media type — including
+structured `+json` suffixes such as `application/problem+json`.
+
+An `application/json` key means the same thing as the shorthand, so it accepts those `+json`
+suffixes too, keeping `jsonResponse(schema)` equivalent to using `schema` directly. Declaring the
+suffixed media type explicitly still wins, since exact matches are tried first:
+
+```ts
+// `application/problem+json` resolves to the `application/json` schema…
+400: jsonResponse(problemSchema, { description: "RFC 7807 problem details" }),
+// …unless the contract declares it, which then takes precedence.
+409: { content: { "application/json": conflictSchema, "application/problem+json": problemSchema } },
+```
+
+A response whose `content-type` matches no declared media type is treated as unexpected. Clients
+can relax this with `strictContentType: false`, which falls back to the declared body for entries
+declaring exactly one.
 
 ### SSE and dual-mode routes
 
 Use `sseResponse()` inside `responsesByStatusCode` to define SSE event schemas. For endpoints that
-respond with either JSON or an SSE stream depending on the `Accept` header, use `anyOfResponses()`
-to declare both options on the same status code.
+respond with either JSON or an SSE stream depending on the `Accept` header, declare both media
+types on the same status code with a content map.
 
 ```ts
-import { defineApiContract, sseResponse, anyOfResponses } from "@toad-contracts/core";
+import { defineApiContract, sseBody, sseResponse } from "@toad-contracts/core";
 import { object, string } from "valibot";
 
 // SSE-only
@@ -128,16 +191,22 @@ const chatCompletion = defineApiContract({
   pathResolver: () => "/chat/completions",
   requestBodySchema: object({ message: string() }),
   responsesByStatusCode: {
-    200: anyOfResponses([
-      sseResponse({
-        chunk: object({ delta: string() }),
-        done: object({ finish_reason: string() }),
-      }),
-      object({ text: string() }),
-    ]),
+    200: {
+      content: {
+        "application/json": object({ text: string() }),
+        "text/event-stream": sseBody({
+          chunk: object({ delta: string() }),
+          done: object({ finish_reason: string() }),
+        }),
+      },
+    },
   },
 });
 ```
+
+A contract whose success codes declare both an SSE and a non-SSE body is _dual-mode_: the client
+requires an explicit `streaming` argument and infers the matching body type from it. An SSE-only
+contract always streams, and a contract with no SSE body never does.
 
 ### Wildcard and default response keys
 
@@ -231,15 +300,14 @@ Object.assign(schema["~standard"], {
 ## Type utilities
 
 - `InferNonSseSuccessResponses<T>`: TypeScript output type of all non-SSE 2xx responses. JSON
-  schemas → `StandardSchemaV1.InferOutput<T>`, `textResponse` → `string`, `blobResponse` → `Blob`,
-  `streamResponse` → `ReadableStream<Uint8Array>`, `ContractNoBody`/`NoBodyResponse` → `undefined`,
-  `sseResponse` → `never` (excluded). `anyOfResponses` entries are unpacked before mapping.
+  schemas → `StandardSchemaV1.InferOutput<T>`, `blobBody()` → `BlobResponseHandle`, `allowNoBody` →
+  `undefined`, `sseBody()` → `never` (excluded). Content-map entries are unpacked before mapping.
 - `InferJsonSuccessResponses<T>`: union of Standard Schema types for all JSON 2xx entries.
 - `InferSseSuccessResponses<T>`: SSE event schema map type from a `responsesByStatusCode` map.
 - `HasAnySseSuccessResponse<T>`, `HasAnyJsonSuccessResponse<T>`, `HasAnyNonSseSuccessResponse<T>`:
   boolean checks over 2xx entries.
 - `ContractResponseMode<T>`: `'dual'` (SSE + non-SSE), `'sse'` (SSE-only), or `'non-sse'`.
-- `AvailableResponseModes<T>`: union of `'json' | 'sse' | 'blob' | 'text' | 'stream' | 'noContent'`.
+- `AvailableResponseModes<T>`: union of `'json' | 'sse' | 'blob' | 'noContent'`.
 - `SseEventOf<S>`: discriminated union of SSE events inferred from a `schemaByEventName` map,
   aligned with the browser `MessageEvent` shape: `{ type, data, lastEventId, retry }`.
 
@@ -253,7 +321,8 @@ Primarily consumed by HTTP client implementations.
 - `InferSseClientResponse<TApiContract>`: discriminated union of `{ statusCode, headers, body }`
   for SSE mode. Exact 2xx codes and `'2xx'` yield `AsyncIterable<SseEventOf<...>>`.
 - `InferNonSseClientResponse<TApiContract>`: same shape for non-SSE mode. Exact 2xx codes and
-  `'2xx'` yield JSON / `string` / `Blob` / `ReadableStream<Uint8Array>` / `null` (SSE excluded).
+  `'2xx'` yield JSON / `BlobResponseHandle` / `null` (SSE excluded). A content-map entry
+  contributes one union member per declared media type.
 - `DefaultStreaming<T>`: `true` for SSE-only contracts, `false` otherwise.
 
 ## Contract type aliases
@@ -263,6 +332,9 @@ Primarily consumed by HTTP client implementations.
 - `GetApiContract`, `DeleteApiContract`, `PayloadApiContract`: individual variants.
 - `RequestQuerySchema`, `RequestHeaderSchema`, `ResponseHeaderSchema`: Standard Schema object-schema
   constraints for generic helpers.
+- `ResponseEntry`, `ResponseContentMap`, `BodyDescriptor`, `BlobBody`, `SseBody`,
+  `ResponseContentType`: the content-map response shapes.
+- `BlobResponseHandle`: the lazy, single-consume accessor a `blobBody()` response resolves to.
 - `RequestPathParamsSchema`: a Standard Schema that also implements `StandardObjectKeysV1`.
 - `StandardObjectKeysV1`: the `~standard.objectKeys` object-key introspection surface a path-param
   schema must add so `mapApiContractToPath` can read its keys (see [Path mapping](#path-mapping)). A
@@ -273,11 +345,16 @@ Primarily consumed by HTTP client implementations.
 
 - `mapApiContractToPath(contract)`: Express/Fastify-style path pattern, e.g. `"/users/:userId"`.
 - `describeApiContract(contract)`: human-readable `"METHOD /path"` string.
-- `hasAnySuccessSseResponse(contract)`: `true` when any 2xx entry is an SSE response (including
-  inside `anyOfResponses`).
+- `hasAnySuccessSseResponse(contract)`: `true` when any 2xx entry declares an SSE body under any
+  media type.
 - `getSseSchemaByEventName(contract)`: extracts SSE event schemas, or `null` when none are present.
+- `resolveStatusEntry(responsesByStatusCode, statusCode)`: the raw contract entry for a status code
+  (exact → range → `'default'`), before any content-type resolution.
 - `resolveResponseEntry(...)` / `resolveContractResponse(...)`: resolve a status code + content-type
-  to a concrete `ResponseKind` (`'json' | 'text' | 'blob' | 'stream' | 'sse' | 'noContent'`).
+  to a concrete `ResponseKind` (`'json' | 'blob' | 'sse' | 'noContent'`).
+- `blobBody()` / `sseBody(schemas)`: body descriptors for a content map, with the
+  `isJsonBody` / `isBlobBody` / `isSseBody` predicates and `isContentResponseEntry` for telling a
+  content-map entry from the bare-schema shorthand.
 
 ## Validation
 

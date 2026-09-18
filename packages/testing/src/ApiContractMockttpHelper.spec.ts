@@ -1,10 +1,10 @@
 import { getLocal } from "mockttp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  anyOfTextResponsesApiContract,
   blobResponseApiContract,
   deleteApiContractWithNoBodyResponse,
   dualModeApiContract,
+  optionalDualModeApiContract,
   dualModeApiContractWithPathParams,
   getApiContract,
   getApiContractWith2xxRange,
@@ -23,7 +23,8 @@ import {
   sseGetApiContract,
   sseGetApiContractWithPathParams,
   sseGetApiContractWithQueryParams,
-  streamResponseApiContract,
+  multiContentApiContract,
+  optionalBodyApiContract,
   textResponseApiContract,
 } from "../test/testApiContracts.ts";
 import { ApiContractMockttpHelper } from "./ApiContractMockttpHelper.ts";
@@ -201,6 +202,43 @@ describe("ApiContractMockttpHelper", () => {
       });
       expect(await response.json()).toEqual({ id: "2" });
     });
+
+    it("serves JSON alone when a dual-mode entry allowing no body is mocked without events", async () => {
+      await helper.mockResponse(optionalDualModeApiContract, {
+        responseStatus: 200,
+        responseJson: { id: "1" },
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        headers: { accept: "text/event-stream" },
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.json()).toEqual({ id: "1" });
+    });
+
+    it("serves SSE alone when such an entry is mocked without responseJson", async () => {
+      await helper.mockResponse(optionalDualModeApiContract, {
+        responseStatus: 200,
+        events: [{ event: "completed", data: { totalCount: 1 } }],
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(countSseEvents(await response.text())).toBe(1);
+    });
+
+    it("serves an empty body when such an entry is mocked without any body", async () => {
+      await helper.mockResponse(optionalDualModeApiContract, {
+        responseStatus: 200,
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.text()).toBe("");
+    });
   });
 
   describe("mockResponse: range / wildcard status key fallback", () => {
@@ -278,7 +316,7 @@ describe("ApiContractMockttpHelper", () => {
     it("mocks text response", async () => {
       await helper.mockResponse(textResponseApiContract, {
         responseStatus: 200,
-        responseText: "hello world",
+        responseBlob: "hello world",
       });
       const response = await fetch(url("/text"));
       expect(response.status).toBe(200);
@@ -296,21 +334,46 @@ describe("ApiContractMockttpHelper", () => {
       expect(response.headers.get("content-type")).toBe("application/octet-stream");
     });
 
-    it("mocks stream response", async () => {
-      await helper.mockResponse(streamResponseApiContract, {
+    it("serves the first declared media type of a kind by default", async () => {
+      await helper.mockResponse(multiContentApiContract, {
         responseStatus: 200,
-        responseStream: "a,b,c",
+        responseJson: { id: "1" },
+        responseBlob: "%PDF-",
       });
-      const response = await fetch(url("/stream"));
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toBe("text/csv");
-      expect(await response.text()).toBe("a,b,c");
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/json");
+      expect(await response.json()).toEqual({ id: "1" });
     });
 
-    it("replies with status only when anyOfResponses has no SSE or JSON entry", async () => {
-      await helper.mockResponse(anyOfTextResponsesApiContract, { responseStatus: 200 });
-      const response = await fetch(url("/any-of-text"));
+    it("serves the media type named by contentType", async () => {
+      await helper.mockResponse(multiContentApiContract, {
+        responseStatus: 200,
+        contentType: "application/json+01",
+        responseJson: { id: "1", created: true },
+        responseBlob: "%PDF-",
+      });
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/json+01");
+      expect(await response.json()).toEqual({ id: "1", created: true });
+    });
+
+    it("serves an opaque media type named by contentType", async () => {
+      await helper.mockResponse(multiContentApiContract, {
+        responseStatus: 200,
+        contentType: "application/pdf",
+        responseJson: { id: "1" },
+        responseBlob: "%PDF-",
+      });
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/pdf");
+      expect(await response.text()).toBe("%PDF-");
+    });
+
+    it("replies with status only when the entry allows an absent body and none is given", async () => {
+      await helper.mockResponse(optionalBodyApiContract, { responseStatus: 200 });
+      const response = await fetch(url("/optional-body"));
       expect(response.status).toBe(200);
+      expect(await response.text()).toBe("");
     });
   });
 

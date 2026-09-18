@@ -1,6 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
-  AnyOfResponses,
   ApiContract,
   ClientRequestParams,
   CommonRouteDefinitionMetadata,
@@ -8,7 +7,6 @@ import type {
   InferSchemaInput,
   InferSchemaOutput,
   Prettify,
-  TypedTextResponse,
   WildcardStatusCodeKey,
 } from "@toad-contracts/core";
 import type { SchemaValidationError } from "@toad-contracts/core";
@@ -79,15 +77,27 @@ type ResponseStatusFor<TKey> = TKey extends number
     ? ExpandStatusRangeKey<TKey>
     : StatusCode;
 
-// Maps a single response entry to the Hono return value(s) a handler may produce for it. JSON
-// entries must be returned via `c.json(...)` (a `TypedResponse`); every non-JSON kind (no-body,
-// text, blob, stream, SSE) is produced via `c.body`/`c.text`/streaming and typed as a raw `Response`.
-type ResponseReturnFor<TStatus extends StatusCode, TEntry> = TEntry extends StandardSchemaV1
-  ? TypedResponse<InferSchemaInput<TEntry>, TStatus, "json">
-  : TEntry extends AnyOfResponses<infer TItem>
-    ? ResponseReturnFor<TStatus, TItem>
-    : TEntry extends TypedTextResponse
-      ? TypedResponse<string, TStatus, "text"> | Response
+// Expands a content-map entry into the Hono return value(s) its media types allow: a JSON
+// descriptor must be returned via `c.json(...)` (a `TypedResponse`); every other body kind (blob,
+// SSE) is produced via `c.body`/`c.text`/streaming and typed as a raw `Response`.
+type ContentReturnFor<TStatus extends StatusCode, TEntry> =
+  | (TEntry extends { content: infer TContent }
+      ? {
+          [CT in keyof TContent & string]: TContent[CT] extends StandardSchemaV1
+            ? TypedResponse<InferSchemaInput<TContent[CT]>, TStatus, "json">
+            : Response;
+        }[keyof TContent & string]
+      : never)
+  | (TEntry extends { allowNoBody: true } ? Response : never);
+
+// Maps a single response entry to the Hono return value(s) a handler may produce for it. The
+// bare-schema shorthand is JSON, so it maps to a single `TypedResponse`.
+type ResponseReturnFor<TStatus extends StatusCode, TEntry> = TEntry extends { content: object }
+  ? ContentReturnFor<TStatus, TEntry>
+  : TEntry extends { allowNoBody: true }
+    ? Response
+    : TEntry extends StandardSchemaV1
+      ? TypedResponse<InferSchemaInput<TEntry>, TStatus, "json">
       : Response;
 
 /**

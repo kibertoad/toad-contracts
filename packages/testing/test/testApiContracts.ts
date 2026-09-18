@@ -1,12 +1,10 @@
 import {
-  anyOfResponses,
+  blobBody,
   blobResponse,
-  ContractNoBody,
   defineApiContract,
   noBodyResponse,
+  sseBody,
   sseResponse,
-  streamResponse,
-  textResponse,
 } from "@toad-contracts/core";
 import { withObjectKeys } from "@toad-contracts/valibot";
 import { array, literal, number, object, string } from "valibot";
@@ -91,7 +89,12 @@ export const dualModeApiContract = defineApiContract({
   requestBodySchema: REQUEST_BODY_SCHEMA,
   pathResolver: () => "/events/dual",
   responsesByStatusCode: {
-    200: anyOfResponses([sseResponse(SSE_SCHEMAS), RESPONSE_BODY_SCHEMA]),
+    200: {
+      content: {
+        "application/json": RESPONSE_BODY_SCHEMA,
+        "text/event-stream": sseBody(SSE_SCHEMAS),
+      },
+    },
   },
 });
 
@@ -101,7 +104,12 @@ export const dualModeApiContractWithPathParams = defineApiContract({
   requestPathParamsSchema: PATH_PARAMS_SCHEMA,
   pathResolver: ({ userId }) => `/users/${userId}/events/dual`,
   responsesByStatusCode: {
-    200: anyOfResponses([sseResponse(SSE_SCHEMAS), RESPONSE_BODY_SCHEMA]),
+    200: {
+      content: {
+        "application/json": RESPONSE_BODY_SCHEMA,
+        "text/event-stream": sseBody(SSE_SCHEMAS),
+      },
+    },
   },
 });
 
@@ -109,7 +117,7 @@ export const noBodyApiContract = defineApiContract({
   method: "delete",
   requestPathParamsSchema: PATH_PARAMS_SCHEMA,
   pathResolver: ({ userId }) => `/users/${userId}`,
-  responsesByStatusCode: { 204: ContractNoBody },
+  responsesByStatusCode: { 204: noBodyResponse() },
 });
 
 export const getApiContractWith2xxRange = defineApiContract({
@@ -158,7 +166,7 @@ export const putApiContract = defineApiContract({
 export const textResponseApiContract = defineApiContract({
   method: "get",
   pathResolver: () => "/text",
-  responsesByStatusCode: { 200: textResponse("text/plain") },
+  responsesByStatusCode: { 200: blobResponse("text/plain") },
 });
 
 export const blobResponseApiContract = defineApiContract({
@@ -167,16 +175,44 @@ export const blobResponseApiContract = defineApiContract({
   responsesByStatusCode: { 200: blobResponse("application/octet-stream") },
 });
 
-export const streamResponseApiContract = defineApiContract({
+/** One status code carrying two JSON variants plus a downloadable rendering of the same resource. */
+export const multiContentApiContract = defineApiContract({
   method: "get",
-  pathResolver: () => "/stream",
-  responsesByStatusCode: { 200: streamResponse("text/csv") },
+  pathResolver: () => "/multi-content",
+  responsesByStatusCode: {
+    200: {
+      content: {
+        "application/json": RESPONSE_BODY_SCHEMA,
+        "application/json+01": CREATED_BODY_SCHEMA,
+        "application/pdf": blobBody(),
+      },
+    },
+  },
 });
 
-export const anyOfTextResponsesApiContract = defineApiContract({
+/** A dual-mode status code that may also answer with nothing at all. */
+export const optionalDualModeApiContract = defineApiContract({
+  method: "post",
+  requestBodySchema: REQUEST_BODY_SCHEMA,
+  pathResolver: () => "/events/dual-optional",
+  responsesByStatusCode: {
+    200: {
+      content: {
+        "application/json": RESPONSE_BODY_SCHEMA,
+        "text/event-stream": sseBody(SSE_SCHEMAS),
+      },
+      allowNoBody: true,
+    },
+  },
+});
+
+/** A status code that may answer with a body or with nothing at all. */
+export const optionalBodyApiContract = defineApiContract({
   method: "get",
-  pathResolver: () => "/any-of-text",
-  responsesByStatusCode: { 200: anyOfResponses([textResponse("text/plain")]) },
+  pathResolver: () => "/optional-body",
+  responsesByStatusCode: {
+    200: { content: { "application/json": RESPONSE_BODY_SCHEMA }, allowNoBody: true },
+  },
 });
 
 export const getApiContractWith4xxRange = defineApiContract({

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   deleteApiContractWithNoBodyResponse,
   dualModeApiContract,
+  optionalDualModeApiContract,
   getApiContract,
   getApiContractWith2xxRange,
   getApiContractWithDefault,
@@ -11,7 +12,7 @@ import {
   postApiContract,
   sseGetApiContract,
   sseGetApiContractWithPathParams,
-  streamResponseApiContract,
+  multiContentApiContract,
   textResponseApiContract,
 } from "../test/testApiContracts.ts";
 import { MswHelper } from "./MswHelper.ts";
@@ -96,21 +97,46 @@ describe("MswHelper", () => {
     it("mocks text response", async () => {
       helper.mockResponse(textResponseApiContract, server, {
         responseStatus: 200,
-        responseText: "hello world",
+        responseBlob: "hello world",
       });
       const response = await fetch(url("/text"));
       expect(response.headers.get("content-type")).toBe("text/plain");
       expect(await response.text()).toBe("hello world");
     });
 
-    it("mocks stream response", async () => {
-      helper.mockResponse(streamResponseApiContract, server, {
+    it("serves the media type named by contentType", async () => {
+      helper.mockResponse(multiContentApiContract, server, {
         responseStatus: 200,
-        responseStream: "a,b,c",
+        contentType: "application/json+01",
+        responseJson: { id: "1", created: true },
+        responseBlob: "%PDF-",
       });
-      const response = await fetch(url("/stream"));
-      expect(response.headers.get("content-type")).toBe("text/csv");
-      expect(await response.text()).toBe("a,b,c");
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/json+01");
+      expect(await response.json()).toEqual({ id: "1", created: true });
+    });
+
+    it("throws when contentType names a media type the status code does not declare", () => {
+      expect(() =>
+        helper.mockResponse(multiContentApiContract, server, {
+          responseStatus: 200,
+          contentType: "application/jsonn",
+          responseJson: { id: "1" },
+          responseBlob: "%PDF-",
+        }),
+      ).toThrow(/is not declared for this response/);
+    });
+
+    it("serves an opaque media type named by contentType", async () => {
+      helper.mockResponse(multiContentApiContract, server, {
+        responseStatus: 200,
+        contentType: "application/pdf",
+        responseJson: { id: "1" },
+        responseBlob: "%PDF-",
+      });
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/pdf");
+      expect(await response.text()).toBe("%PDF-");
     });
   });
 
@@ -198,6 +224,41 @@ describe("MswHelper", () => {
       expect(response.headers.get("content-type")).toBe("text/event-stream");
       expect(countSseEvents(await response.text())).toBe(1);
     });
+
+    it("serves JSON alone when a dual-mode entry allowing no body is mocked without events", async () => {
+      helper.mockResponse(optionalDualModeApiContract, server, {
+        responseStatus: 200,
+        responseJson: { id: "1" },
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        headers: { accept: "text/event-stream" },
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.json()).toEqual({ id: "1" });
+    });
+
+    it("serves SSE alone when such an entry is mocked without responseJson", async () => {
+      helper.mockResponse(optionalDualModeApiContract, server, {
+        responseStatus: 200,
+        events: [{ event: "completed", data: { totalCount: 1 } }],
+      });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(countSseEvents(await response.text())).toBe(1);
+    });
+
+    it("serves an empty body when such an entry is mocked without any body", async () => {
+      helper.mockResponse(optionalDualModeApiContract, server, { responseStatus: 200 });
+      const response = await fetch(url("/events/dual-optional"), {
+        method: "POST",
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(await response.text()).toBe("");
+    });
   });
 
   describe("mockSseStream", () => {
@@ -211,6 +272,20 @@ describe("MswHelper", () => {
 
       expect(response.headers.get("content-type")).toBe("text/event-stream");
       expect(countSseEvents(await response.text())).toBe(2);
+    });
+
+    it("streams unvalidated events when the status code declares no SSE body", async () => {
+      // A contract without an SSE body at the streamed status has no schema to validate against,
+      // so events pass through as given rather than failing the stream.
+      const controller = helper.mockSseStream(sseGetApiContract, server, { responseCode: 418 });
+      const response = await fetch(url("/events/stream"));
+
+      controller.emit({ event: "item.updated", data: { items: [{ id: "1" }] } });
+      controller.close();
+
+      expect(response.status).toBe(418);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(countSseEvents(await response.text())).toBe(1);
     });
 
     it("emits SSE events on demand with path params", async () => {

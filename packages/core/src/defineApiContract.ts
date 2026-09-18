@@ -1,9 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SUCCESSFUL_HTTP_STATUS_CODES } from "./HttpStatusCodes.ts";
-import { ContractNoBody } from "./constants.ts";
+import type { ContractNoBody } from "./constants.ts";
 import {
-  isAnyOfResponses,
-  isSseResponse,
+  type ApiContractResponse,
+  isContentResponseEntry,
+  isSseBody,
+  type ResponseEntry,
   type ResponsesByStatusCode,
   type SseSchemaByEventName,
 } from "./contractResponse.ts";
@@ -100,17 +102,35 @@ export const describeApiContract = (routeConfig: ApiContract): string => {
   return `${routeConfig.method.toUpperCase()} ${mapApiContractToPath(routeConfig)}`;
 };
 
+/** Collects every SSE event-schema map declared by a single response entry. */
+const collectSseSchemaMaps = (
+  value: ApiContractResponse | ResponseEntry,
+): SseSchemaByEventName[] => {
+  if (!isContentResponseEntry(value) || !value.content) {
+    return [];
+  }
+
+  const maps: SseSchemaByEventName[] = [];
+  for (const descriptor of Object.values(value.content)) {
+    if (isSseBody(descriptor)) {
+      maps.push(descriptor.schemaByEventName);
+    }
+  }
+
+  return maps;
+};
+
+/**
+ * Merges every SSE event-schema map the contract declares, across all status codes and media
+ * types, into one lookup. Returns `null` when the contract declares no SSE response.
+ */
 export const getSseSchemaByEventName = (routeConfig: ApiContract): SseSchemaByEventName | null => {
   const result: SseSchemaByEventName = {};
 
   for (const value of Object.values(routeConfig.responsesByStatusCode)) {
-    if (isSseResponse(value)) {
-      Object.assign(result, value.schemaByEventName);
-    } else if (isAnyOfResponses(value)) {
-      for (const response of value.responses) {
-        if (isSseResponse(response)) {
-          Object.assign(result, response.schemaByEventName);
-        }
+    if (value) {
+      for (const map of collectSseSchemaMaps(value)) {
+        Object.assign(result, map);
       }
     }
   }
@@ -118,22 +138,13 @@ export const getSseSchemaByEventName = (routeConfig: ApiContract): SseSchemaByEv
   return Object.keys(result).length > 0 ? result : null;
 };
 
+/** True when any success status code (exact, `'2xx'`, or `'default'`) declares an SSE body. */
 export const hasAnySuccessSseResponse = (apiContract: ApiContract): boolean => {
   for (const code of [...SUCCESSFUL_HTTP_STATUS_CODES, "2xx" as const, "default" as const]) {
     const value = apiContract.responsesByStatusCode[code];
 
-    if (!value) {
-      continue;
-    }
-
-    if (isSseResponse(value)) {
+    if (value && collectSseSchemaMaps(value).length > 0) {
       return true;
-    } else if (isAnyOfResponses(value)) {
-      for (const response of value.responses) {
-        if (isSseResponse(response)) {
-          return true;
-        }
-      }
     }
   }
 

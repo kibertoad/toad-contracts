@@ -1,22 +1,20 @@
 import {
   type ApiContract,
-  ContractNoBody,
   type InferSchemaInput,
   type InferSseSuccessResponses,
-  isAnyOfResponses,
-  isBlobResponse,
-  isJsonResponse,
-  isNoBodyResponse,
-  isSseResponse,
-  isStreamResponse,
-  isTextResponse,
   type RequestPathParamsSchema,
   resolveStatusEntry,
   type SseSchemaByEventName,
-  type TypedSseResponse,
 } from "@toad-contracts/core";
 import { HttpResponse, http, type JsonBodyType } from "msw";
 import type { SetupServer } from "msw/node";
+import {
+  acceptsSse,
+  type MockJsonTarget,
+  type MockSseTarget,
+  planMockResponse,
+  selectMockBody,
+} from "./planMockResponse.ts";
 import { formatSseResponse, type MockResponseParams, type SseMockEventInput } from "./types.ts";
 import {
   validateResponseBody,
@@ -88,100 +86,72 @@ export class MswHelper {
     }
 
     const method = contract.method as HttpMethod;
+    const plan = planMockResponse(responseEntry, anyParams.contentType);
+    const selection = selectMockBody(plan, anyParams);
 
-    if (responseEntry === ContractNoBody || isNoBodyResponse(responseEntry)) {
-      server.use(http[method](url, () => new HttpResponse(null, { status: statusCode })));
-      return;
-    }
+    const jsonHttpResponse = ({ schema, contentType }: MockJsonTarget) =>
+      HttpResponse.json(validateResponseBody(schema, anyParams.responseJson) as JsonBodyType, {
+        status: statusCode,
+        headers: { "content-type": contentType },
+      });
 
-    if (isTextResponse(responseEntry) || isBlobResponse(responseEntry)) {
-      const body = isTextResponse(responseEntry) ? anyParams.responseText : anyParams.responseBlob;
-      server.use(
-        http[method](
-          url,
-          () =>
-            new HttpResponse(body, {
-              status: statusCode,
-              headers: { "content-type": responseEntry.contentType },
-            }),
-        ),
-      );
-      return;
-    }
+    // Events are validated here rather than inside the handler, so an event that violates the
+    // contract fails the test at `mockResponse` instead of at request time.
+    const sseBodyFor = ({ schemaByEventName }: MockSseTarget) =>
+      formatSseResponse(validateSseEvents(schemaByEventName, anyParams.events));
 
-    if (isStreamResponse(responseEntry)) {
-      server.use(
-        http[method](
-          url,
-          () =>
-            new HttpResponse(anyParams.responseStream, {
-              status: statusCode,
-              headers: { "content-type": responseEntry.contentType },
-            }),
-        ),
-      );
-      return;
-    }
+    const sseHttpResponse = (body: string) =>
+      new HttpResponse(body, {
+        status: statusCode,
+        headers: { "content-type": "text/event-stream" },
+      });
 
-    if (isSseResponse(responseEntry)) {
-      const body = formatSseResponse(
-        validateSseEvents(responseEntry.schemaByEventName, anyParams.events),
-      );
-      server.use(
-        http[method](
-          url,
-          () =>
-            new HttpResponse(body, {
-              status: statusCode,
-              headers: { "content-type": "text/event-stream" },
-            }),
-        ),
-      );
-      return;
-    }
+    switch (selection.kind) {
+      case "dual": {
+        const { json, sse } = selection;
+        const sseBody = sseBodyFor(sse);
 
-    if (isAnyOfResponses(responseEntry)) {
-      const sseEntry = responseEntry.responses.find(isSseResponse);
-      const jsonEntry = responseEntry.responses.find(isJsonResponse);
+        server.use(
+          http[method](url, ({ request }) =>
+            acceptsSse(request.headers.get("accept") ?? undefined)
+              ? sseHttpResponse(sseBody)
+              : jsonHttpResponse(json),
+          ),
+        );
+        return;
+      }
 
-      server.use(
-        http[method](url, ({ request }) => {
-          const accept = request.headers.get("accept") ?? "";
+      case "sse": {
+        const sseBody = sseBodyFor(selection.sse);
+        server.use(http[method](url, () => sseHttpResponse(sseBody)));
+        return;
+      }
 
-          if (accept.includes("text/event-stream") && sseEntry) {
-            return new HttpResponse(
-              formatSseResponse(validateSseEvents(sseEntry.schemaByEventName, anyParams.events)),
-              {
+      case "blob": {
+        const { contentType } = selection.blob;
+        server.use(
+          http[method](
+            url,
+            () =>
+              new HttpResponse(anyParams.responseBlob, {
                 status: statusCode,
-                headers: { "content-type": "text/event-stream" },
-              },
-            );
-          }
+                headers: { "content-type": contentType },
+              }),
+          ),
+        );
+        return;
+      }
 
-          if (jsonEntry) {
-            return HttpResponse.json(
-              validateResponseBody(jsonEntry, anyParams.responseJson) as JsonBodyType,
-              { status: statusCode },
-            );
-          }
+      case "json": {
+        const { json } = selection;
+        server.use(http[method](url, () => jsonHttpResponse(json)));
+        return;
+      }
 
-          return new HttpResponse(null, { status: statusCode });
-        }),
-      );
-      return;
+      case "empty":
+        server.use(http[method](url, () => new HttpResponse(null, { status: statusCode })));
+        return;
     }
-
-    const jsonSchema = responseEntry;
-    server.use(
-      http[method](url, () =>
-        HttpResponse.json(
-          validateResponseBody(jsonSchema, anyParams.responseJson) as JsonBodyType,
-          {
-            status: statusCode,
-          },
-        ),
-      ),
-    );
   }
 
   /**
@@ -204,28 +174,19 @@ export class MswHelper {
     const controllers = new Set<ReadableStreamDefaultController<Uint8Array>>();
 
     const successEntry = resolveStatusEntry(contract.responsesByStatusCode, status);
-    const sseEntry: TypedSseResponse | undefined = successEntry
-      ? isSseResponse(successEntry)
-        ? successEntry
-        : isAnyOfResponses(successEntry)
-          ? successEntry.responses.find(isSseResponse)
-          : undefined
-      : undefined;
-    const jsonEntry =
-      successEntry && isAnyOfResponses(successEntry)
-        ? successEntry.responses.find(isJsonResponse)
-        : undefined;
+    const plan = successEntry ? planMockResponse(successEntry) : undefined;
+    // Only a dual-mode entry (SSE *and* JSON on the same status code) needs a JSON fallback here;
+    // an SSE-only entry always streams.
+    const jsonTarget = plan?.sse ? plan.json : undefined;
+    const sseSchemaByEventName = plan?.sse?.schemaByEventName;
 
     server.use(
       http[method](url, ({ request }) => {
-        if (jsonEntry) {
-          const accept = request.headers.get("accept") ?? "";
-          if (!accept.includes("text/event-stream")) {
-            return HttpResponse.json(
-              validateResponseBody(jsonEntry, params?.responseJson) as JsonBodyType,
-              { status },
-            );
-          }
+        if (jsonTarget && !acceptsSse(request.headers.get("accept") ?? undefined)) {
+          return HttpResponse.json(
+            validateResponseBody(jsonTarget.schema, params?.responseJson) as JsonBodyType,
+            { status, headers: { "content-type": jsonTarget.contentType } },
+          );
         }
 
         const stream = new ReadableStream<Uint8Array>({
@@ -243,7 +204,9 @@ export class MswHelper {
 
     return {
       emit(event) {
-        const validated = sseEntry ? validateSseEvent(sseEntry.schemaByEventName, event) : event;
+        const validated = sseSchemaByEventName
+          ? validateSseEvent(sseSchemaByEventName, event)
+          : event;
         const chunk = `event: ${validated.event}\ndata: ${JSON.stringify(validated.data)}\n\n`;
         const bytes = encoder.encode(chunk);
         for (const controller of controllers) {

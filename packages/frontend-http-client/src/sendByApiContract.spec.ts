@@ -1,11 +1,11 @@
+import type { BlobResponseHandle } from "@toad-contracts/core";
 import {
-  anyOfResponses,
   blobResponse,
   ContractNoBody,
   defineApiContract,
+  noBodyResponse,
+  sseBody,
   sseResponse,
-  streamResponse,
-  textResponse,
 } from "@toad-contracts/core";
 import { withObjectKeys } from "@toad-contracts/valibot";
 import { getLocal } from "mockttp";
@@ -345,12 +345,12 @@ describe("sendByApiContract", () => {
   });
 
   describe("DELETE", () => {
-    it("sends DELETE request with ContractNoBody and returns null on 204", async () => {
+    it("sends DELETE request with a no-body response and returns null on 204", async () => {
       const contract = defineApiContract({
         requestPathParamsSchema: withObjectKeys(object({ id: string() })),
         method: "delete",
         pathResolver: ({ id }) => `/products/${id}`,
-        responsesByStatusCode: { 204: ContractNoBody },
+        responsesByStatusCode: { 204: noBodyResponse() },
       });
 
       await mockServer.forDelete("/products/1").thenReply(204);
@@ -450,10 +450,12 @@ describe("sendByApiContract", () => {
         method: "get",
         pathResolver: () => "/events",
         responsesByStatusCode: {
-          200: anyOfResponses([
-            sseResponse({ update: object({ id: string() }) }),
-            object({ latest: string() }),
-          ]),
+          200: {
+            content: {
+              "application/json": object({ latest: string() }),
+              "text/event-stream": sseBody({ update: object({ id: string() }) }),
+            },
+          },
         },
       });
 
@@ -548,65 +550,120 @@ describe("sendByApiContract", () => {
     });
   });
 
-  describe("text", () => {
-    it("returns string body for text response", async () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/export.csv",
-        responsesByStatusCode: { 200: textResponse("text/csv") },
-      });
+  describe("blob", () => {
+    const csvContract = defineApiContract({
+      method: "get",
+      pathResolver: () => "/export.csv",
+      responsesByStatusCode: { 200: blobResponse("text/csv") },
+    });
 
-      await mockServer
+    const replyWithCsv = () =>
+      mockServer
         .forGet("/export.csv")
         .thenReply(200, "id,name\n1,Backpack", { "content-type": "text/csv" });
 
-      const result = await sendByApiContract(buildClient(), contract, {});
+    it("returns a lazy handle that decodes the body as text", async () => {
+      await replyWithCsv();
 
-      expectTypeOf(result.result).toMatchTypeOf<{ body: string } | undefined>();
-      expect(result.result).toMatchObject({ body: "id,name\n1,Backpack" });
+      const result = await sendByApiContract(buildClient(), csvContract, {});
+
+      expectTypeOf(result.result).toMatchTypeOf<{ body: BlobResponseHandle } | undefined>();
+      if (!result.result) throw new Error("Expected result");
+      expect(await result.result.body.text()).toBe("id,name\n1,Backpack");
     });
-  });
 
-  describe("blob", () => {
-    it("returns Blob body for blob response", async () => {
+    it("buffers the body into a Blob", async () => {
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/photo.png",
         responsesByStatusCode: { 200: blobResponse("image/png") },
       });
 
-      const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-
       await mockServer
         .forGet("/photo.png")
-        .thenReply(200, imageBytes, { "content-type": "image/png" });
+        .thenReply(200, Buffer.from([0x89, 0x50, 0x4e, 0x47]), { "content-type": "image/png" });
 
       const result = await sendByApiContract(buildClient(), contract, {});
 
-      expectTypeOf(result.result).toMatchTypeOf<{ body: Blob } | undefined>();
-      expect(result.result?.body).toBeInstanceOf(Blob);
-      expect(result.result?.body.size).toBe(4);
+      if (!result.result) throw new Error("Expected result");
+      const blob = await result.result.body.blob();
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.size).toBe(4);
     });
-  });
 
-  describe("stream", () => {
-    it("returns a ReadableStream body for stream response", async () => {
+    it("buffers the body into an ArrayBuffer", async () => {
+      await replyWithCsv();
+
+      const result = await sendByApiContract(buildClient(), csvContract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      const buffer = await result.result.body.arrayBuffer();
+      expect(new TextDecoder().decode(buffer)).toBe("id,name\n1,Backpack");
+    });
+
+    it("exposes the raw stream without buffering it", async () => {
+      await replyWithCsv();
+
+      const result = await sendByApiContract(buildClient(), csvContract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      const stream = result.result.body.stream();
+      expect(stream).toBeInstanceOf(ReadableStream);
+      expect(await new Response(stream).text()).toBe("id,name\n1,Backpack");
+    });
+
+    it("discards the body via cancel()", async () => {
+      await replyWithCsv();
+
+      const result = await sendByApiContract(buildClient(), csvContract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      await expect(result.result.body.cancel()).resolves.toBeUndefined();
+    });
+
+    it("serves an empty body when a bodiless response matches a blob descriptor", async () => {
       const contract = defineApiContract({
         method: "get",
-        pathResolver: () => "/stream.csv",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
+        pathResolver: () => "/export-empty.csv",
+        responsesByStatusCode: { 204: blobResponse("text/csv") },
       });
 
       await mockServer
-        .forGet("/stream.csv")
-        .thenReply(200, "id,name\n1,Backpack", { "content-type": "text/csv" });
+        .forGet("/export-empty.csv")
+        .thenReply(204, undefined, { "content-type": "text/csv" });
 
       const result = await sendByApiContract(buildClient(), contract, {});
 
-      expectTypeOf(result.result).toMatchTypeOf<{ body: ReadableStream<Uint8Array> } | undefined>();
       if (!result.result) throw new Error("Expected result");
-      const text = await new Response(result.result.body).text();
-      expect(text).toBe("id,name\n1,Backpack");
+      expect(await result.result.body.text()).toBe("");
+    });
+
+    it("exposes an empty stream for a bodiless response", async () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/export-empty-stream.csv",
+        responsesByStatusCode: { 204: blobResponse("text/csv") },
+      });
+
+      await mockServer
+        .forGet("/export-empty-stream.csv")
+        .thenReply(204, undefined, { "content-type": "text/csv" });
+
+      const result = await sendByApiContract(buildClient(), contract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      expect(await new Response(result.result.body.stream()).text()).toBe("");
+    });
+
+    it("throws on a second accessor, since the body is one-shot", async () => {
+      await replyWithCsv();
+
+      const result = await sendByApiContract(buildClient(), csvContract, {});
+
+      if (!result.result) throw new Error("Expected result");
+      await result.result.body.text();
+      expect(() => result.result?.body.stream()).toThrow("Response body already consumed");
+      await expect(result.result.body.blob()).rejects.toThrow("Response body already consumed");
     });
   });
 
@@ -764,7 +821,7 @@ describe("sendByApiContract", () => {
         method: "post",
         pathResolver: () => "/ping",
         requestBodySchema: ContractNoBody,
-        responsesByStatusCode: { 204: ContractNoBody },
+        responsesByStatusCode: { 204: noBodyResponse() },
       });
 
       let receivedBody: string | undefined;

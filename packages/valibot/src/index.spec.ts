@@ -2,16 +2,17 @@ import { defineMessageContract, type InferConsumerMessage } from "@toad-contract
 import { literal, object, string } from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
-  anyOfResponses,
+  blobResponse,
   ContractNoBody,
   defineApiContract,
   describeApiContract,
   type InferNonSseClientResponse,
+  jsonResponse,
   mapApiContractToPath,
   noBodyResponse,
   resolveResponseEntry,
+  sseBody,
   sseResponse,
-  textResponse,
   validateSync,
   withObjectKeys,
 } from "./index.ts";
@@ -97,10 +98,11 @@ describe("describeApiContract", () => {
 describe("re-exported core surface", () => {
   it("re-exports response factories, predicates, and the ContractNoBody sentinel", () => {
     expect(typeof defineApiContract).toBe("function");
-    expect(typeof textResponse).toBe("function");
-    expect(typeof anyOfResponses).toBe("function");
+    expect(typeof jsonResponse).toBe("function");
+    expect(typeof blobResponse).toBe("function");
     expect(typeof noBodyResponse).toBe("function");
     expect(typeof sseResponse).toBe("function");
+    expect(typeof sseBody).toBe("function");
     expect(typeof resolveResponseEntry).toBe("function");
     expect(ContractNoBody).toBe(Symbol.for("ContractNoBody"));
   });

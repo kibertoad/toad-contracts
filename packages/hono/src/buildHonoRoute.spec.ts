@@ -1,4 +1,4 @@
-import { ContractNoBody, defineApiContract, SchemaValidationError } from "@toad-contracts/core";
+import { defineApiContract, noBodyResponse, SchemaValidationError } from "@toad-contracts/core";
 import { withObjectKeys } from "@toad-contracts/valibot";
 import { Hono } from "hono";
 import { array, object, optional, pipe, string, transform } from "valibot";
@@ -108,12 +108,12 @@ describe("buildHonoRoute", () => {
     expect(await response.json()).toEqual({ name: "patched" });
   });
 
-  it("builds a DELETE route returning ContractNoBody", async () => {
+  it("builds a DELETE route returning no body", async () => {
     const contract = defineApiContract({
       method: "delete",
       requestPathParamsSchema: PATH_PARAMS_SCHEMA,
       pathResolver: ({ userId }) => `/users/${userId}`,
-      responsesByStatusCode: { 204: ContractNoBody },
+      responsesByStatusCode: { 204: noBodyResponse() },
     });
 
     const app = new Hono();

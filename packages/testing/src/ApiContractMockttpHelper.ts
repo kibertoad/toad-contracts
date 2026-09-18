@@ -1,16 +1,6 @@
-import {
-  type ApiContract,
-  ContractNoBody,
-  isAnyOfResponses,
-  isBlobResponse,
-  isJsonResponse,
-  isNoBodyResponse,
-  isSseResponse,
-  isStreamResponse,
-  isTextResponse,
-  resolveStatusEntry,
-} from "@toad-contracts/core";
+import { type ApiContract, resolveStatusEntry } from "@toad-contracts/core";
 import type { Mockttp, RequestRuleBuilder } from "mockttp";
+import { planMockResponse, acceptsSse, selectMockBody } from "./planMockResponse.ts";
 import { formatSseResponse, type MockResponseParams } from "./types.ts";
 import { validateResponseBody, validateSseEvents } from "./validateResponseBody.ts";
 
@@ -68,76 +58,54 @@ export class ApiContractMockttpHelper {
     }
 
     const mockRule = this.resolveMethodBuilder(contract.method, path);
+    const plan = planMockResponse(responseEntry, anyParams.contentType);
+    const selection = selectMockBody(plan, anyParams);
 
-    if (responseEntry === ContractNoBody || isNoBodyResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode);
-      return;
+    switch (selection.kind) {
+      case "dual": {
+        const { json, sse } = selection;
+
+        await mockRule.thenCallback((request) =>
+          acceptsSse(request.headers.accept)
+            ? {
+                statusCode,
+                headers: { "content-type": "text/event-stream" },
+                body: formatSseResponse(validateSseEvents(sse.schemaByEventName, anyParams.events)),
+              }
+            : {
+                statusCode,
+                headers: { "content-type": json.contentType },
+                body: JSON.stringify(validateResponseBody(json.schema, anyParams.responseJson)),
+              },
+        );
+        return;
+      }
+
+      case "sse": {
+        const body = formatSseResponse(
+          validateSseEvents(selection.sse.schemaByEventName, anyParams.events),
+        );
+        await mockRule.thenReply(statusCode, body, { "content-type": "text/event-stream" });
+        return;
+      }
+
+      case "blob":
+        await mockRule.thenReply(statusCode, anyParams.responseBlob, {
+          "content-type": selection.blob.contentType,
+        });
+        return;
+
+      case "json": {
+        const body = validateResponseBody(selection.json.schema, anyParams.responseJson);
+        await mockRule.thenReply(statusCode, JSON.stringify(body), {
+          "content-type": selection.json.contentType,
+        });
+        return;
+      }
+
+      case "empty":
+        await mockRule.thenReply(statusCode);
+        return;
     }
-
-    if (isTextResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode, anyParams.responseText, {
-        "content-type": responseEntry.contentType,
-      });
-      return;
-    }
-
-    if (isBlobResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode, anyParams.responseBlob, {
-        "content-type": responseEntry.contentType,
-      });
-      return;
-    }
-
-    if (isStreamResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode, anyParams.responseStream, {
-        "content-type": responseEntry.contentType,
-      });
-      return;
-    }
-
-    if (isSseResponse(responseEntry)) {
-      const body = formatSseResponse(
-        validateSseEvents(responseEntry.schemaByEventName, anyParams.events),
-      );
-      await mockRule.thenReply(statusCode, body, {
-        "content-type": "text/event-stream",
-      });
-      return;
-    }
-
-    if (isAnyOfResponses(responseEntry)) {
-      const sseEntry = responseEntry.responses.find(isSseResponse);
-      const jsonEntry = responseEntry.responses.find(isJsonResponse);
-
-      await mockRule.thenCallback((request) => {
-        const accept = request.headers.accept ?? "";
-
-        if (accept.includes("text/event-stream") && sseEntry) {
-          return {
-            statusCode,
-            headers: { "content-type": "text/event-stream" },
-            body: formatSseResponse(
-              validateSseEvents(sseEntry.schemaByEventName, anyParams.events),
-            ),
-          };
-        }
-
-        if (jsonEntry) {
-          return {
-            statusCode,
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(validateResponseBody(jsonEntry, anyParams.responseJson)),
-          };
-        }
-
-        return { statusCode };
-      });
-      return;
-    }
-
-    const body = validateResponseBody(responseEntry, anyParams.responseJson);
-    await mockRule.thenReply(statusCode, JSON.stringify(body), {
-      "content-type": "application/json",
-    });
   }
 }

@@ -67,7 +67,7 @@ returned as an `UnexpectedResponseError` on the `error` side.
 
 ### Server-sent events
 
-A contract whose success response is an `sseResponse` (or a dual-mode `anyOfResponses` with
+A contract whose success response declares an SSE body (or a dual-mode contract called with
 `streaming: true`) yields an `AsyncIterable` of typed events. Iterate directly, or bridge to callbacks
 with `sseStreamToCallbacks`:
 
@@ -88,14 +88,41 @@ sseStreamToCallbacks(result.body, {
 });
 ```
 
+### Non-JSON bodies
+
+A success response declared with `blobResponse(contentType)` — or a `blobBody()` descriptor inside a
+content map — resolves to a `BlobResponseHandle`: a lazy, single-consume accessor over the response
+body.
+
+```ts
+const { result } = await sendByApiContract(client, exportCsv, {});
+
+if (result) {
+  await result.body.text(); // decode as UTF-8
+  await result.body.blob(); // buffer into a Blob
+  await result.body.arrayBuffer(); // buffer into an ArrayBuffer
+  result.body.stream(); // ReadableStream<Uint8Array>, nothing buffered
+  await result.body.cancel(); // discard, releasing the connection
+}
+```
+
+The body is a one-shot stream: the first accessor consumes it, and a second throws
+`Response body already consumed` (the promise-returning accessors reject with it). Draining the
+body — any accessor except a lazy `stream()`, or `cancel()` — is also what releases the connection,
+so a handle you never touch keeps it open.
+
+When one status code declares several media types, the response body is a union with one member per
+media type; narrow on it (or on the `content-type` header) to pick the variant the server sent.
+
 ## Options
 
 `sendByApiContract(client, contract, params)` accepts, alongside the contract-derived request fields
 (`pathParams`, `queryParams`, `body`, `headers`, `pathPrefix`, `streaming`):
 
 - `captureAsError`: route declared non-2xx responses to `error` (default `true`).
-- `strictContentType`: require the response `content-type` to match the contract entry (default
-  `true`). When `false`, single-entry responses fall back to the entry's declared kind.
+- `strictContentType`: require the response `content-type` to match a media type the contract
+  entry declares (default `true`). When `false`, an entry declaring exactly one body falls back to
+  it.
 - `signal`: an `AbortSignal` to cancel the in-flight request.
 
 Validation is performed through each schema's `~standard.validate`, so any Standard Schema

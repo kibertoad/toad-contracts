@@ -11,7 +11,7 @@ import {
   postApiContract,
   sseGetApiContract,
   sseGetApiContractWithPathParams,
-  streamResponseApiContract,
+  multiContentApiContract,
   textResponseApiContract,
 } from "../test/testApiContracts.ts";
 import { MswHelper } from "./MswHelper.ts";
@@ -96,21 +96,35 @@ describe("MswHelper", () => {
     it("mocks text response", async () => {
       helper.mockResponse(textResponseApiContract, server, {
         responseStatus: 200,
-        responseText: "hello world",
+        responseBlob: "hello world",
       });
       const response = await fetch(url("/text"));
       expect(response.headers.get("content-type")).toBe("text/plain");
       expect(await response.text()).toBe("hello world");
     });
 
-    it("mocks stream response", async () => {
-      helper.mockResponse(streamResponseApiContract, server, {
+    it("serves the media type named by contentType", async () => {
+      helper.mockResponse(multiContentApiContract, server, {
         responseStatus: 200,
-        responseStream: "a,b,c",
+        contentType: "application/json+01",
+        responseJson: { id: "1", created: true },
+        responseBlob: "%PDF-",
       });
-      const response = await fetch(url("/stream"));
-      expect(response.headers.get("content-type")).toBe("text/csv");
-      expect(await response.text()).toBe("a,b,c");
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/json+01");
+      expect(await response.json()).toEqual({ id: "1", created: true });
+    });
+
+    it("serves an opaque media type named by contentType", async () => {
+      helper.mockResponse(multiContentApiContract, server, {
+        responseStatus: 200,
+        contentType: "application/pdf",
+        responseJson: { id: "1" },
+        responseBlob: "%PDF-",
+      });
+      const response = await fetch(url("/multi-content"));
+      expect(response.headers.get("content-type")).toBe("application/pdf");
+      expect(await response.text()).toBe("%PDF-");
     });
   });
 
@@ -211,6 +225,20 @@ describe("MswHelper", () => {
 
       expect(response.headers.get("content-type")).toBe("text/event-stream");
       expect(countSseEvents(await response.text())).toBe(2);
+    });
+
+    it("streams unvalidated events when the status code declares no SSE body", async () => {
+      // A contract without an SSE body at the streamed status has no schema to validate against,
+      // so events pass through as given rather than failing the stream.
+      const controller = helper.mockSseStream(sseGetApiContract, server, { responseCode: 418 });
+      const response = await fetch(url("/events/stream"));
+
+      controller.emit({ event: "item.updated", data: { items: [{ id: "1" }] } });
+      controller.close();
+
+      expect(response.status).toBe(418);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(countSseEvents(await response.text())).toBe(1);
     });
 
     it("emits SSE events on demand with path params", async () => {

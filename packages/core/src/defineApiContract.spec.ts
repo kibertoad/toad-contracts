@@ -3,18 +3,12 @@ import { object, string } from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { ContractNoBody } from "./constants.ts";
 import {
-  anyOfResponses,
+  type BlobBody,
+  blobBody,
   blobResponse,
-  isAnyOfResponses,
-  isBlobResponse,
-  isSseResponse,
-  isTextResponse,
+  noBodyResponse,
+  sseBody,
   sseResponse,
-  streamResponse,
-  type TypedBlobResponse,
-  type TypedStreamResponse,
-  type TypedTextResponse,
-  textResponse,
 } from "./contractResponse.ts";
 import {
   defineApiContract,
@@ -154,51 +148,46 @@ describe("defineApiContract", () => {
       expectTypeOf(route.requestBodySchema).toEqualTypeOf<typeof ContractNoBody>();
     });
 
-    it("preserves ContractNoBody sentinel in responsesByStatusCode", () => {
+    it("preserves a noBodyResponse entry in responsesByStatusCode", () => {
+      const entry = noBodyResponse();
       const route = defineApiContract({
         method: "delete",
         requestPathParamsSchema: pathParamsSchema(["userId"]),
         pathResolver: ({ userId }) => `/users/${userId}`,
-        responsesByStatusCode: { 204: ContractNoBody },
+        responsesByStatusCode: { 204: entry },
       });
 
-      expectTypeOf(route.responsesByStatusCode["204"]).toEqualTypeOf<typeof ContractNoBody>();
+      expectTypeOf(route.responsesByStatusCode["204"]).toEqualTypeOf<typeof entry>();
     });
 
-    it("preserves TypedTextResponse in responsesByStatusCode", () => {
-      const route = defineApiContract({
-        method: "get",
-        pathResolver: () => "/export.csv",
-        responsesByStatusCode: {
-          200: textResponse("text/csv"),
-        },
-      });
-
-      expectTypeOf(route.responsesByStatusCode["200"]).toEqualTypeOf<TypedTextResponse>();
-    });
-
-    it("preserves TypedBlobResponse in responsesByStatusCode", () => {
+    it("preserves a blobResponse content map, including its literal media type", () => {
+      const entry = blobResponse("image/png");
       const route = defineApiContract({
         method: "get",
         pathResolver: () => "/photo.png",
-        responsesByStatusCode: {
-          200: blobResponse("image/png"),
-        },
+        responsesByStatusCode: { 200: entry },
       });
 
-      expectTypeOf(route.responsesByStatusCode["200"]).toEqualTypeOf<TypedBlobResponse>();
+      expectTypeOf(route.responsesByStatusCode["200"]).toEqualTypeOf<typeof entry>();
+      expectTypeOf(route.responsesByStatusCode["200"].content).toEqualTypeOf<{
+        readonly "image/png": BlobBody;
+      }>();
     });
 
-    it("preserves TypedStreamResponse in responsesByStatusCode", () => {
+    it("preserves a hand-written multi-media-type content map", () => {
+      const jsonSchema = object({ id: string() });
       const route = defineApiContract({
         method: "get",
-        pathResolver: () => "/export-large.csv",
+        pathResolver: () => "/report",
         responsesByStatusCode: {
-          200: streamResponse("text/csv"),
+          200: { content: { "application/json": jsonSchema, "text/csv": blobBody() } },
         },
       });
 
-      expectTypeOf(route.responsesByStatusCode["200"]).toEqualTypeOf<TypedStreamResponse>();
+      expectTypeOf(route.responsesByStatusCode["200"].content).toEqualTypeOf<{
+        readonly "application/json": typeof jsonSchema;
+        readonly "text/csv": BlobBody;
+      }>();
     });
   });
 });
@@ -261,86 +250,6 @@ describe("describeApiContract", () => {
   });
 });
 
-describe("isTextResponse", () => {
-  it("returns true for TypedTextResponse", () => {
-    expect(isTextResponse(textResponse("text/csv"))).toBe(true);
-  });
-
-  it("returns false for a Standard Schema", () => {
-    expect(isTextResponse(string())).toBe(false);
-  });
-
-  it("returns false for TypedBlobResponse", () => {
-    expect(isTextResponse(blobResponse("image/png"))).toBe(false);
-  });
-
-  it("returns false for ContractNoBody", () => {
-    expect(isTextResponse(ContractNoBody)).toBe(false);
-  });
-});
-
-describe("isBlobResponse", () => {
-  it("returns true for TypedBlobResponse", () => {
-    expect(isBlobResponse(blobResponse("image/png"))).toBe(true);
-  });
-
-  it("returns false for a Standard Schema", () => {
-    expect(isBlobResponse(string())).toBe(false);
-  });
-
-  it("returns false for TypedTextResponse", () => {
-    expect(isBlobResponse(textResponse("text/csv"))).toBe(false);
-  });
-
-  it("returns false for ContractNoBody", () => {
-    expect(isBlobResponse(ContractNoBody)).toBe(false);
-  });
-});
-
-describe("isSseResponse", () => {
-  it("returns true for TypedSseResponse", () => {
-    const value = sseResponse({ chunk: object({ delta: string() }) });
-    expect(isSseResponse(value)).toBe(true);
-  });
-
-  it("returns false for a Standard Schema", () => {
-    expect(isSseResponse(string())).toBe(false);
-  });
-
-  it("returns false for ContractNoBody", () => {
-    expect(isSseResponse(ContractNoBody)).toBe(false);
-  });
-
-  it("returns false for TypedTextResponse", () => {
-    expect(isSseResponse(textResponse("text/csv"))).toBe(false);
-  });
-});
-
-describe("isAnyOfResponses", () => {
-  it("returns true for AnyOfResponse", () => {
-    const value = anyOfResponses([sseResponse({ chunk: string() }), object({ id: string() })]);
-    expect(isAnyOfResponses(value)).toBe(true);
-  });
-
-  it("returns true for AnyOfResponse containing textResponse", () => {
-    const value = anyOfResponses([textResponse("text/csv")]);
-    expect(isAnyOfResponses(value)).toBe(true);
-  });
-
-  it("returns true for AnyOfResponse containing blobResponse", () => {
-    const value = anyOfResponses([blobResponse("image/png")]);
-    expect(isAnyOfResponses(value)).toBe(true);
-  });
-
-  it("returns false for TypedSseResponse", () => {
-    expect(isAnyOfResponses(sseResponse({ chunk: string() }))).toBe(false);
-  });
-
-  it("returns false for a Standard Schema", () => {
-    expect(isAnyOfResponses(string())).toBe(false);
-  });
-});
-
 describe("hasAnySuccessSseResponse", () => {
   it("returns true for a direct sseResponse at a success code", () => {
     const route = defineApiContract({
@@ -354,12 +263,17 @@ describe("hasAnySuccessSseResponse", () => {
     expect(hasAnySuccessSseResponse(route)).toBe(true);
   });
 
-  it("returns true for sseResponse inside anyOfResponses at a success code", () => {
+  it("returns true for an SSE body inside a multi-media-type entry at a success code", () => {
     const route = defineApiContract({
       method: "get",
       pathResolver: () => "/stream",
       responsesByStatusCode: {
-        200: anyOfResponses([sseResponse({ chunk: string() }), object({ id: string() })]),
+        200: {
+          content: {
+            "application/json": object({ id: string() }),
+            "text/event-stream": sseBody({ chunk: string() }),
+          },
+        },
       },
     });
 
@@ -389,12 +303,14 @@ describe("hasAnySuccessSseResponse", () => {
     expect(hasAnySuccessSseResponse(route)).toBe(false);
   });
 
-  it("returns false for anyOfResponses with no sseResponse at a success code", () => {
+  it("returns false for a multi-media-type entry with no SSE body at a success code", () => {
     const route = defineApiContract({
       method: "get",
       pathResolver: () => "/users",
       responsesByStatusCode: {
-        200: anyOfResponses([textResponse("text/csv"), object({ id: string() })]),
+        200: {
+          content: { "application/json": object({ id: string() }), "text/csv": blobBody() },
+        },
       },
     });
 
@@ -468,7 +384,12 @@ describe("getSseSchemaByEventName", () => {
       method: "get",
       pathResolver: () => "/stream",
       responsesByStatusCode: {
-        200: anyOfResponses([sseResponse({ chunk: chunkSchema }), object({ id: string() })]),
+        200: {
+          content: {
+            "application/json": object({ id: string() }),
+            "text/event-stream": sseBody({ chunk: chunkSchema }),
+          },
+        },
       },
     });
 

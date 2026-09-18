@@ -89,15 +89,28 @@ await helper.mockResponse(getUser, {
 `params` is a discriminated union on `responseStatus`. The body fields required for a status code
 are inferred from the contract's response entry for that code:
 
-| Response entry                        | Required field                         |
-| ------------------------------------- | -------------------------------------- |
-| Standard Schema (JSON)                | `responseJson: StandardSchemaV1.Input` |
-| `sseResponse(schemas)`                | `events: { event; data }[]`            |
-| `textResponse(contentType)`           | `responseText: string`                 |
-| `blobResponse(contentType)`           | `responseBlob: string`                 |
-| `streamResponse(contentType)`         | `responseStream: string`               |
-| `ContractNoBody` / `noBodyResponse()` | _(none)_                               |
-| `anyOfResponses([sse, json])`         | `responseJson` + `events`              |
+| Body declared by the entry        | Required field                         |
+| --------------------------------- | -------------------------------------- |
+| a Standard Schema (JSON)          | `responseJson: StandardSchemaV1.Input` |
+| `blobBody()` / `blobResponse(ct)` | `responseBlob: string \| Uint8Array`   |
+| `sseBody()` / `sseResponse(...)`  | `events: { event; data }[]`            |
+| `noBodyResponse()`                | _(none)_                               |
+
+A content map declaring several bodies asks for one field per kind, so a dual-mode (JSON + SSE)
+status code requires both `responseJson` and `events`. An entry that also sets `allowNoBody: true`
+makes every body field optional: omit them all to mock the empty response.
+
+When a status code declares several variants of one kind (e.g. `application/json` and
+`application/json+01`), pass `contentType` to name the media type the mock should serve. Without
+it, the first media type the contract declares wins.
+
+```ts
+await helper.mockResponse(getReport, {
+  responseStatus: 200,
+  contentType: "application/pdf",
+  responseBlob: "%PDF-",
+});
+```
 
 For SSE contracts, the mock replies with a `text/event-stream` body built from `events`:
 
@@ -118,9 +131,10 @@ await helper.mockResponse(sse, {
 });
 ```
 
-For dual-mode contracts (`anyOfResponses([sseResponse(...), schema])`), the mock routes on the
-request's `Accept` header: `text/event-stream` receives the SSE stream, everything else receives
-the JSON body. Both `events` and `responseJson` are required.
+For dual-mode contracts — one status code declaring both `application/json` and
+`text/event-stream` — the mock routes on the request's `Accept` header: `text/event-stream`
+receives the SSE stream, everything else receives the JSON body. Both `events` and `responseJson`
+are required.
 
 ### Range and wildcard status keys
 

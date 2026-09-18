@@ -4,7 +4,6 @@ import type {
   HttpStatusCodeRange,
   WildcardStatusCodeKey,
 } from "./HttpStatusCodes.ts";
-import { ContractNoBody } from "./constants.ts";
 
 export type ResponseOptions = {
   readonly description?: string;
@@ -14,163 +13,214 @@ export type ResponseOptions = {
 const descriptionPart = (options?: ResponseOptions): { description?: string } =>
   options?.description !== undefined ? { description: options.description } : {};
 
-/** Shared `_tag` discriminator check backing every `isX` response predicate. */
-const hasTag = (value: ApiContractResponse, tag: string): boolean =>
-  typeof value === "object" && value !== null && "_tag" in value && value._tag === tag;
-
-export type TypedTextResponse = {
-  readonly _tag: "TextResponse";
-  readonly contentType: string;
-  readonly description?: string;
-};
-
-/**
- * Declares a non-JSON response whose body the client materializes as a `string`.
- * Records the response `content-type` in the contract. Convenient for small text payloads
- * (CSV, plain text, HTML). For large payloads prefer {@link streamResponse}; for binary data
- * where a buffered handle is wanted prefer {@link blobResponse}.
- */
-export const textResponse = (
-  contentType: string,
-  options?: ResponseOptions,
-): TypedTextResponse => ({
-  _tag: "TextResponse",
-  contentType,
-  ...descriptionPart(options),
-});
-
-export const isTextResponse = (value: ApiContractResponse): value is TypedTextResponse =>
-  hasTag(value, "TextResponse");
-
-export type TypedBlobResponse = {
-  readonly _tag: "BlobResponse";
-  readonly contentType: string;
-  readonly description?: string;
-};
-
-/**
- * Declares a non-JSON response whose body the client materializes as a `Blob`.
- * Records the response `content-type` in the contract. The body is buffered into memory; the
- * consumer decodes it via `.text()`, `.arrayBuffer()`, or `.stream()`. For large payloads that
- * should not be buffered, prefer {@link streamResponse}.
- */
-export const blobResponse = (
-  contentType: string,
-  options?: ResponseOptions,
-): TypedBlobResponse => ({
-  _tag: "BlobResponse",
-  contentType,
-  ...descriptionPart(options),
-});
-
-export const isBlobResponse = (value: ApiContractResponse): value is TypedBlobResponse =>
-  hasTag(value, "BlobResponse");
-
-export type TypedStreamResponse = {
-  readonly _tag: "StreamResponse";
-  readonly contentType: string;
-  readonly description?: string;
-};
-
-/**
- * Declares a non-JSON response whose body the client exposes as a `ReadableStream<Uint8Array>`,
- * without buffering it into memory. Records the response `content-type` in the contract.
- *
- * The consumer chooses how to consume it: iterate/pipe the stream directly for large payloads,
- * or wrap it for convenience via `new Response(body).text()` / `.blob()` / `.arrayBuffer()`.
- * `ReadableStream` is the one body type both fetch-based and undici-based clients can produce
- * without materializing the whole payload first.
- */
-export const streamResponse = (
-  contentType: string,
-  options?: ResponseOptions,
-): TypedStreamResponse => ({
-  _tag: "StreamResponse",
-  contentType,
-  ...descriptionPart(options),
-});
-
-export const isStreamResponse = (value: ApiContractResponse): value is TypedStreamResponse =>
-  hasTag(value, "StreamResponse");
-
 export type SseSchemaByEventName = Record<string, StandardSchemaV1>;
 
-export type TypedSseResponse<T extends SseSchemaByEventName = SseSchemaByEventName> = {
-  readonly _tag: "SseResponse";
-  readonly schemaByEventName: T;
-  readonly description?: string;
+// ───────────────────────────────────────────────────────────────────────────
+// Body descriptors
+//
+// A descriptor says how a body is carried, never which media type carries it:
+// the media type is the key it sits under in a {@link ResponseContentMap}. A bare
+// Standard Schema is a JSON body, so the common case stays free of ceremony.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Opaque binary body; the media type is supplied by the content-map key. */
+export type BlobBody = {
+  readonly _tag: "BlobBody";
 };
 
+export const blobBody = (): BlobBody => ({ _tag: "BlobBody" });
+
+/** Server-Sent Events body; the media type is supplied by the content-map key. */
+export type SseBody<T extends SseSchemaByEventName = SseSchemaByEventName> = {
+  readonly _tag: "SseBody";
+  readonly schemaByEventName: T;
+};
+
+export const sseBody = <T extends SseSchemaByEventName>(schemaByEventName: T): SseBody<T> => ({
+  _tag: "SseBody",
+  schemaByEventName,
+});
+
+/**
+ * A value in a {@link ResponseContentMap}; the media type is the map key, so a
+ * descriptor never carries a content type itself. A bare Standard Schema is JSON.
+ */
+export type BodyDescriptor = StandardSchemaV1 | BlobBody | SseBody;
+
+/** Shared `_tag` discriminator check backing the descriptor predicates. */
+const hasTag = (value: unknown, tag: string): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  "_tag" in value &&
+  (value as { _tag: unknown })._tag === tag;
+
+export const isBlobBody = (value: BodyDescriptor): value is BlobBody => hasTag(value, "BlobBody");
+
+export const isSseBody = (value: BodyDescriptor): value is SseBody => hasTag(value, "SseBody");
+
+export const isJsonBody = (value: BodyDescriptor): value is StandardSchemaV1 =>
+  typeof value === "object" && value !== null && !("_tag" in value);
+
+/**
+ * Lazy, single-consume accessor over a {@link blobResponse} body — the client-side value a blob
+ * response resolves to. Mirrors the accessor surface of Fetch's `Response`/`Blob`, so one
+ * descriptor covers every non-JSON body: decode it as text, buffer it, or stream it untouched.
+ *
+ * The underlying body is a one-shot stream: the first accessor you call consumes it; calling a
+ * second throws. Pick one. Draining the body (any accessor except a lazy `stream()`, or `cancel()`)
+ * is also what releases the connection — a handle you never touch keeps it open.
+ */
+export interface BlobResponseHandle {
+  /** Raw stream, for piping/backpressure. You own draining or cancelling it. */
+  stream(): ReadableStream<Uint8Array>;
+  /** Buffer the whole body into a `Blob`. */
+  blob(): Promise<Blob>;
+  /** Buffer the whole body and decode it as UTF-8 text. */
+  text(): Promise<string>;
+  /** Buffer the whole body into an `ArrayBuffer`. */
+  arrayBuffer(): Promise<ArrayBuffer>;
+  /** Discard the body without materializing it, releasing the connection. */
+  cancel(): Promise<void>;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Response entries
+//
+// A status code maps either to a bare Standard Schema (the JSON shorthand) or to
+// an OpenAPI-shaped `{ content }` entry keyed by media type. The content map lets a
+// single status code expose several media types — including more than one JSON
+// variant (e.g. `application/json` and `application/json+01`) — each disambiguated
+// by an exact content-type match. A contract may freely mix both styles across
+// status codes.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Commonly used response media types, offered as autocomplete suggestions. */
+export type CommonResponseContentType =
+  | "application/json"
+  | "application/octet-stream"
+  | "application/pdf"
+  | "application/x-ndjson"
+  | "application/xml"
+  | "application/zip"
+  | "audio/mpeg"
+  | "audio/ogg"
+  | "image/gif"
+  | "image/jpeg"
+  | "image/png"
+  | "image/svg+xml"
+  | "image/webp"
+  | "text/csv"
+  | "text/event-stream"
+  | "text/html"
+  | "text/plain"
+  | "video/mp4"
+  | "video/webm";
+
+/**
+ * A response media type. Common values are autocompleted; any other string
+ * (e.g. a vendored variant like `application/json+01`) is accepted too.
+ */
+// oxlint-disable-next-line typescript/no-empty-object-type -- `string & {}` keeps literal autocomplete while accepting any string
+export type ResponseContentType = CommonResponseContentType | (string & {});
+
+/**
+ * Maps a response media type (e.g. `application/json`) to the body it carries.
+ * {@link CommonResponseContentType} keys are autocompleted; any other media type is accepted too.
+ */
+export type ResponseContentMap = Partial<Record<CommonResponseContentType, BodyDescriptor>> &
+  Record<string, BodyDescriptor>;
+
+/** A content-map response carrying a body for one or more media types. */
+export type BodyContentResponseEntry = {
+  readonly description?: string;
+  readonly content: ResponseContentMap;
+  readonly allowNoBody?: boolean;
+};
+
+/** A content-map response that never carries a body. */
+export type NoBodyContentResponseEntry = {
+  readonly description?: string;
+  readonly content?: never;
+  readonly allowNoBody: true;
+};
+
+/**
+ * A content-map response entry. Either a body response (`content` required,
+ * optionally `allowNoBody`) or a no-body response (`allowNoBody: true`, no
+ * `content`). The union forces at least one of `content` / `allowNoBody`.
+ */
+export type ResponseEntry = BodyContentResponseEntry | NoBodyContentResponseEntry;
+
+/** The JSON shorthand: a bare Standard Schema standing in for `application/json`. */
+export type TypedJsonResponse = StandardSchemaV1;
+
+export type ApiContractResponse = TypedJsonResponse;
+
+export const isContentResponseEntry = (
+  value: ApiContractResponse | ResponseEntry,
+): value is ResponseEntry =>
+  typeof value === "object" && value !== null && ("content" in value || "allowNoBody" in value);
+
+export const isJsonResponse = (
+  value: ApiContractResponse | ResponseEntry,
+): value is TypedJsonResponse =>
+  typeof value === "object" && value !== null && !isContentResponseEntry(value);
+
+/**
+ * Declares a no-body response (e.g. `204`).
+ */
+export const noBodyResponse = (options?: ResponseOptions): NoBodyContentResponseEntry => ({
+  allowNoBody: true,
+  ...descriptionPart(options),
+});
+
+/**
+ * Declares an `application/json` response. Equivalent to using the schema directly as the
+ * status code's value, but reachable when the response also needs a `description`.
+ */
+export const jsonResponse = <TSchema extends StandardSchemaV1>(
+  schema: TSchema,
+  options?: ResponseOptions,
+) =>
+  ({
+    content: { "application/json": schema },
+    ...descriptionPart(options),
+  }) as const satisfies BodyContentResponseEntry;
+
+/**
+ * Declares a binary/opaque response for a single media type. The client materializes it as a
+ * {@link BlobResponseHandle}, which decodes to text, a `Blob`, an `ArrayBuffer`, or a raw stream.
+ */
+export const blobResponse = <TContentType extends ResponseContentType>(
+  contentType: TContentType,
+  options?: ResponseOptions,
+) =>
+  ({
+    // A computed property with a generic key widens to `{ [x: string]: ... }`, losing the literal
+    // media type — assert the single-key record shape to keep `TContentType` in the entry type.
+    content: { [contentType]: blobBody() } as { readonly [K in TContentType]: BlobBody },
+    ...descriptionPart(options),
+  }) as const satisfies BodyContentResponseEntry;
+
+/**
+ * Declares a Server-Sent Events response under `text/event-stream`.
+ */
 export const sseResponse = <T extends SseSchemaByEventName>(
   schemaByEventName: T,
   options?: ResponseOptions,
-): TypedSseResponse<T> => ({
-  _tag: "SseResponse",
-  schemaByEventName,
-  ...descriptionPart(options),
-});
-
-export const isSseResponse = (value: ApiContractResponse): value is TypedSseResponse =>
-  hasTag(value, "SseResponse");
-
-export type TypedJsonResponse = StandardSchemaV1;
-
-export const isJsonResponse = (value: ApiContractResponse): value is TypedJsonResponse =>
-  typeof value === "object" && value !== null && !("_tag" in value);
-
-export type TypedApiContractResponse =
-  | TypedJsonResponse
-  | TypedTextResponse
-  | TypedBlobResponse
-  | TypedStreamResponse
-  | TypedSseResponse;
-
-export type AnyOfResponses<T extends TypedApiContractResponse = TypedApiContractResponse> = {
-  readonly _tag: "AnyOfResponses";
-  readonly responses: T[];
-  readonly description?: string;
-};
-
-export const anyOfResponses = <T extends TypedApiContractResponse>(
-  responses: T[],
-  options?: ResponseOptions,
-): AnyOfResponses<T> => ({
-  _tag: "AnyOfResponses",
-  responses,
-  ...descriptionPart(options),
-});
-
-export const isAnyOfResponses = (value: ApiContractResponse): value is AnyOfResponses =>
-  hasTag(value, "AnyOfResponses");
-
-export type NoBodyResponse = {
-  readonly _tag: "NoBodyResponse";
-  readonly description?: string;
-};
-
-export const noBodyResponse = (options?: ResponseOptions): NoBodyResponse => ({
-  _tag: "NoBodyResponse",
-  ...descriptionPart(options),
-});
-
-export const isNoBodyResponse = (value: ApiContractResponse): value is NoBodyResponse =>
-  hasTag(value, "NoBodyResponse");
-
-export type ApiContractResponse =
-  | typeof ContractNoBody
-  | NoBodyResponse
-  | TypedApiContractResponse
-  | AnyOfResponses;
+) =>
+  ({
+    content: { "text/event-stream": sseBody(schemaByEventName) },
+    ...descriptionPart(options),
+  }) as const satisfies BodyContentResponseEntry;
 
 export type ResponsesByStatusCode = Partial<
-  Record<HttpStatusCode | WildcardStatusCodeKey, ApiContractResponse>
+  Record<HttpStatusCode | WildcardStatusCodeKey, ApiContractResponse | ResponseEntry>
 >;
 
 export type ResponseKind =
   | { kind: "noContent" }
-  | { kind: "text" }
   | { kind: "blob" }
-  | { kind: "stream" }
   | { kind: "json"; schema: StandardSchemaV1 }
   | { kind: "sse"; schemaByEventName: SseSchemaByEventName };
 
@@ -191,54 +241,50 @@ const contentTypeEssence = (contentType: string): string => {
 const isJsonContentType = (essence: string): boolean =>
   essence === "application/json" || essence.endsWith("+json");
 
-const matchTypedResponse = (
-  entry: TypedApiContractResponse,
-  contentType: string,
-): ResponseKind | null => {
-  // Compare media-type essences (token before `;`), not raw substrings. Substring matching let an
-  // over-broad declared type (e.g. `text/`) shadow a more specific one (e.g. `text/event-stream`)
-  // and accepted unrelated types that merely contained the declared one as a substring.
-  const essence = contentTypeEssence(contentType);
-
-  if (isTextResponse(entry)) {
-    return essence === contentTypeEssence(entry.contentType) ? { kind: "text" } : null;
-  }
-
-  if (isBlobResponse(entry)) {
-    return essence === contentTypeEssence(entry.contentType) ? { kind: "blob" } : null;
-  }
-
-  if (isStreamResponse(entry)) {
-    return essence === contentTypeEssence(entry.contentType) ? { kind: "stream" } : null;
-  }
-
-  if (isSseResponse(entry)) {
-    return essence === "text/event-stream"
-      ? { kind: "sse", schemaByEventName: entry.schemaByEventName }
-      : null;
-  }
-
-  if (isJsonContentType(essence)) {
-    return { kind: "json", schema: entry };
-  }
-
-  return null;
-};
-
-const resolveByKind = (entry: TypedApiContractResponse): ResponseKind => {
-  if (isTextResponse(entry)) {
-    return { kind: "text" };
-  }
-  if (isBlobResponse(entry)) {
+const descriptorToKind = (descriptor: BodyDescriptor): ResponseKind => {
+  if (isBlobBody(descriptor)) {
     return { kind: "blob" };
   }
-  if (isStreamResponse(entry)) {
-    return { kind: "stream" };
+  if (isSseBody(descriptor)) {
+    return { kind: "sse", schemaByEventName: descriptor.schemaByEventName };
   }
-  if (isSseResponse(entry)) {
-    return { kind: "sse", schemaByEventName: entry.schemaByEventName };
+  return { kind: "json", schema: descriptor };
+};
+
+/**
+ * Resolves a content-map {@link ResponseEntry}. Media types are matched by exact
+ * (parameter-stripped, case-insensitive) equality, so e.g. `application/json` and
+ * `application/json+01` stay distinct — a content map declares its variants explicitly,
+ * so there is nothing to guess.
+ */
+const resolveContentEntry = (
+  entry: ResponseEntry,
+  contentType: string | undefined,
+  strict: boolean,
+): ResponseKind | null => {
+  if (!entry.content) {
+    return { kind: "noContent" };
   }
-  return { kind: "json", schema: entry };
+
+  const entries = Object.entries(entry.content);
+
+  if (!contentType) {
+    if (entry.allowNoBody) {
+      return { kind: "noContent" };
+    }
+  } else {
+    const target = contentTypeEssence(contentType);
+    for (const [mediaType, descriptor] of entries) {
+      if (contentTypeEssence(mediaType) === target) {
+        return descriptorToKind(descriptor);
+      }
+    }
+  }
+
+  // No content-type (without allowNoBody), or no media type matched: in non-strict mode fall
+  // back to the sole descriptor when the entry declares exactly one.
+  const onlyDescriptor = entries.length === 1 ? entries[0]?.[1] : undefined;
+  return !strict && onlyDescriptor ? descriptorToKind(onlyDescriptor) : null;
 };
 
 /**
@@ -248,47 +294,35 @@ const resolveByKind = (entry: TypedApiContractResponse): ResponseKind => {
  * Returns `null` when the content-type cannot be matched to any entry in the contract,
  * indicating the response is unexpected and should be treated as an error by the caller.
  *
- * @param schemaEntry - The contract entry for the matched status code (`ContractNoBody`,
- *   a Standard Schema, `textResponse`, `blobResponse`, `streamResponse`, `sseResponse`, or
- *   `anyOfResponses`).
+ * @param schemaEntry - The contract entry for the matched status code: a bare Standard Schema
+ *   (the JSON shorthand) or a content-map entry (`noBodyResponse`, `jsonResponse`, `blobResponse`,
+ *   `sseResponse`, or a hand-written `{ content }` map).
  * @param contentType - The `content-type` header value from the actual HTTP response,
  *   or `undefined` when the header is absent.
  * @param strict - When `true` (default), returns `null` if the `content-type` is absent or does
  *   not match the contract entry. When `false`, falls back to the entry's declared kind instead of
- *   returning `null`. Only applies to single-entry responses; `anyOfResponses` always requires a
- *   content-type to disambiguate regardless of this flag.
+ *   returning `null` — only applies to entries declaring exactly one body.
  */
 export const resolveContractResponse = (
-  schemaEntry: ApiContractResponse,
+  schemaEntry: ApiContractResponse | ResponseEntry,
   contentType: string | undefined,
   strict = true,
 ): ResponseKind | null => {
-  if (schemaEntry === ContractNoBody || isNoBodyResponse(schemaEntry)) {
-    return { kind: "noContent" };
+  if (isContentResponseEntry(schemaEntry)) {
+    return resolveContentEntry(schemaEntry, contentType, strict);
   }
 
-  if (isAnyOfResponses(schemaEntry)) {
-    // AnyOfResponses always requires content-type to disambiguate; strict mode has no effect here
-    if (!contentType) {
-      return null;
-    }
-
-    for (const item of schemaEntry.responses) {
-      const resolved = matchTypedResponse(item, contentType);
-      if (resolved) {
-        return resolved;
-      }
-    }
-    return null;
-  }
-
+  // The bare-schema shorthand declares no media type of its own, only "this is JSON", so it
+  // accepts any JSON media type — `application/json` and `+json` suffixes alike.
   if (!contentType) {
-    return strict ? null : resolveByKind(schemaEntry);
+    return strict ? null : { kind: "json", schema: schemaEntry };
   }
 
-  const matched = matchTypedResponse(schemaEntry, contentType);
+  if (isJsonContentType(contentTypeEssence(contentType))) {
+    return { kind: "json", schema: schemaEntry };
+  }
 
-  return matched ?? (strict ? null : resolveByKind(schemaEntry));
+  return strict ? null : { kind: "json", schema: schemaEntry };
 };
 
 function getRangeKey(statusCode: number): HttpStatusCodeRange | null {
@@ -308,7 +342,7 @@ function getRangeKey(statusCode: number): HttpStatusCodeRange | null {
 export function resolveStatusEntry(
   responsesByStatusCode: ResponsesByStatusCode,
   statusCode: number,
-): ApiContractResponse | undefined {
+): ApiContractResponse | ResponseEntry | undefined {
   const exactEntry = responsesByStatusCode[statusCode as HttpStatusCode];
   if (exactEntry) {
     return exactEntry;

@@ -47,7 +47,7 @@ header and body schemas need no wrapping.
 
 ```ts
 import { buildHonoRoute } from "@toad-contracts/hono";
-import { defineApiContract, ContractNoBody } from "@toad-contracts/core";
+import { defineApiContract, noBodyResponse } from "@toad-contracts/core";
 import { withObjectKeys } from "@toad-contracts/valibot";
 import { object, string } from "valibot";
 import { Hono } from "hono";
@@ -93,7 +93,7 @@ buildHonoRoute(
     method: "delete",
     requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
     pathResolver: ({ userId }) => `/users/${userId}`,
-    responsesByStatusCode: { 204: ContractNoBody },
+    responsesByStatusCode: { 204: noBodyResponse() },
   }),
   (c) => c.body(null, 204),
 );

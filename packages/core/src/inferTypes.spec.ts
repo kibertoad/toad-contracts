@@ -1,13 +1,11 @@
 import { object, string } from "valibot";
 import { describe, expectTypeOf, it } from "vitest";
-import { ContractNoBody } from "./constants.ts";
 import {
-  anyOfResponses,
+  type BlobResponseHandle,
   blobResponse,
   noBodyResponse,
+  sseBody,
   sseResponse,
-  streamResponse,
-  textResponse,
 } from "./contractResponse.ts";
 import { defineApiContract } from "./defineApiContract.ts";
 import type {
@@ -48,21 +46,11 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<typeof schema200 | typeof schema201>();
     });
 
-    it("returns never for ContractNoBody", () => {
+    it("returns never for noBodyResponse()", () => {
       const contract = defineApiContract({
         method: "delete",
         pathResolver: () => "/test",
-        responsesByStatusCode: { 204: ContractNoBody },
-      });
-      type Result = InferJsonSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<never>();
-    });
-
-    it("returns never for textResponse", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: textResponse("text/csv") },
+        responsesByStatusCode: { 204: noBodyResponse() },
       });
       type Result = InferJsonSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<never>();
@@ -73,16 +61,6 @@ describe("inferTypes", () => {
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: { 200: blobResponse("image/png") },
-      });
-      type Result = InferJsonSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<never>();
-    });
-
-    it("returns never for streamResponse", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
       });
       type Result = InferJsonSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<never>();
@@ -100,13 +78,18 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<never>();
     });
 
-    it("extracts JSON schema from AnyOfResponses, excluding SSE", () => {
+    it("extracts the JSON schema from a multi-media-type entry, excluding SSE", () => {
       const jsonSchema = object({ id: string() });
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: {
-          200: anyOfResponses([sseResponse({ chunk: object({ delta: string() }) }), jsonSchema]),
+          200: {
+            content: {
+              "application/json": jsonSchema,
+              "text/event-stream": sseBody({ chunk: object({ delta: string() }) }),
+            },
+          },
         },
       });
       type Result = InferJsonSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
@@ -136,11 +119,11 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<false>();
     });
 
-    it("returns false for ContractNoBody", () => {
+    it("returns false for noBodyResponse()", () => {
       const contract = defineApiContract({
         method: "delete",
         pathResolver: () => "/test",
-        responsesByStatusCode: { 204: ContractNoBody },
+        responsesByStatusCode: { 204: noBodyResponse() },
       });
       type Result = HasAnySseSuccessResponse<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<false>();
@@ -158,26 +141,30 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<true>();
     });
 
-    it("returns true for AnyOfResponses containing sseResponse", () => {
+    it("returns true for a multi-media-type entry containing an SSE body", () => {
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: {
-          200: anyOfResponses([
-            sseResponse({ chunk: object({ delta: string() }) }),
-            object({ id: string() }),
-          ]),
+          200: {
+            content: {
+              "application/json": object({ id: string() }),
+              "text/event-stream": sseBody({ chunk: object({ delta: string() }) }),
+            },
+          },
         },
       });
       type Result = HasAnySseSuccessResponse<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<true>();
     });
 
-    it("returns false for AnyOfResponses containing only JSON schemas", () => {
+    it("returns false for a content-map entry containing only a JSON body", () => {
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/test",
-        responsesByStatusCode: { 200: anyOfResponses([object({ id: string() })]) },
+        responsesByStatusCode: {
+          200: { content: { "application/json": object({ id: string() }) } },
+        },
       });
       type Result = HasAnySseSuccessResponse<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<false>();
@@ -263,16 +250,6 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<false>();
     });
 
-    it("returns false for stream-only response", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
-      });
-      type Result = HasAnyJsonSuccessResponse<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<false>();
-    });
-
     it("returns true for 2xx: JSON schema", () => {
       const contract = defineApiContract({
         method: "get",
@@ -315,34 +292,14 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<never>();
     });
 
-    it("returns string for textResponse", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: textResponse("text/csv") },
-      });
-      type Result = InferNonSseSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<string>();
-    });
-
-    it("returns Blob for blobResponse", () => {
+    it("returns BlobResponseHandle for blobResponse", () => {
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: { 200: blobResponse("image/png") },
       });
       type Result = InferNonSseSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<Blob>();
-    });
-
-    it("returns ReadableStream<Uint8Array> for streamResponse", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
-      });
-      type Result = InferNonSseSuccessResponses<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<ReadableStream<Uint8Array>>();
+      expectTypeOf<Result>().toEqualTypeOf<BlobResponseHandle>();
     });
 
     it("returns the output type for 2xx: JSON schema", () => {
@@ -372,16 +329,6 @@ describe("inferTypes", () => {
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: { 200: object({ id: string() }) },
-      });
-      type Result = ContractResponseMode<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<"non-sse">();
-    });
-
-    it("returns non-sse for a stream-only contract", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
       });
       type Result = ContractResponseMode<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<"non-sse">();
@@ -417,15 +364,17 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<"non-sse">();
     });
 
-    it("returns dual for 2xx: anyOfResponses with SSE and JSON", () => {
+    it("returns dual for 2xx: a content-map entry with SSE and JSON", () => {
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: {
-          "2xx": anyOfResponses([
-            sseResponse({ chunk: object({ delta: string() }) }),
-            object({ id: string() }),
-          ]),
+          "2xx": {
+            content: {
+              "application/json": object({ id: string() }),
+              "text/event-stream": sseBody({ chunk: object({ delta: string() }) }),
+            },
+          },
         },
       });
       type Result = ContractResponseMode<(typeof contract)["responsesByStatusCode"]>;
@@ -454,16 +403,6 @@ describe("inferTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<"sse">();
     });
 
-    it("includes stream for a streamResponse", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
-      });
-      type Result = AvailableResponseModes<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<"stream">();
-    });
-
     it("includes blob for a blobResponse", () => {
       const contract = defineApiContract({
         method: "get",
@@ -472,16 +411,6 @@ describe("inferTypes", () => {
       });
       type Result = AvailableResponseModes<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<"blob">();
-    });
-
-    it("includes text for a textResponse", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 200: textResponse("text/csv") },
-      });
-      type Result = AvailableResponseModes<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<"text">();
     });
 
     it("includes json for 2xx: JSON schema", () => {
@@ -502,16 +431,6 @@ describe("inferTypes", () => {
       });
       type Result = AvailableResponseModes<(typeof contract)["responsesByStatusCode"]>;
       expectTypeOf<Result>().toEqualTypeOf<"sse">();
-    });
-
-    it("includes noContent for ContractNoBody", () => {
-      const contract = defineApiContract({
-        method: "delete",
-        pathResolver: () => "/test",
-        responsesByStatusCode: { 204: ContractNoBody },
-      });
-      type Result = AvailableResponseModes<(typeof contract)["responsesByStatusCode"]>;
-      expectTypeOf<Result>().toEqualTypeOf<"noContent">();
     });
 
     it("includes noContent for noBodyResponse()", () => {
@@ -550,13 +469,18 @@ describe("inferTypes", () => {
       expectTypeOf<keyof Result>().toEqualTypeOf<"chunk" | "done">();
     });
 
-    it("extracts SSE schemas object from AnyOfResponses", () => {
+    it("extracts the SSE schemas object from a multi-media-type entry", () => {
       const chunkSchema = object({ delta: string() });
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/test",
         responsesByStatusCode: {
-          200: anyOfResponses([sseResponse({ chunk: chunkSchema }), object({ id: string() })]),
+          200: {
+            content: {
+              "application/json": object({ id: string() }),
+              "text/event-stream": sseBody({ chunk: chunkSchema }),
+            },
+          },
         },
       });
       type Result = InferSseSuccessResponses<(typeof contract)["responsesByStatusCode"]>;

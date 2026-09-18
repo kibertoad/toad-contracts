@@ -1,16 +1,6 @@
-import {
-  type ApiContract,
-  ContractNoBody,
-  isAnyOfResponses,
-  isBlobResponse,
-  isJsonResponse,
-  isNoBodyResponse,
-  isSseResponse,
-  isStreamResponse,
-  isTextResponse,
-  resolveStatusEntry,
-} from "@toad-contracts/core";
+import { type ApiContract, resolveStatusEntry } from "@toad-contracts/core";
 import type { Mockttp, RequestRuleBuilder } from "mockttp";
+import { acceptsSse, mocksEmptyBody, planMockResponse } from "./planMockResponse.ts";
 import { formatSseResponse, type MockResponseParams } from "./types.ts";
 import { validateResponseBody, validateSseEvents } from "./validateResponseBody.ts";
 
@@ -68,76 +58,53 @@ export class ApiContractMockttpHelper {
     }
 
     const mockRule = this.resolveMethodBuilder(contract.method, path);
+    const plan = planMockResponse(responseEntry, anyParams.contentType);
+    const serveEmptyBody = mocksEmptyBody(plan, anyParams);
 
-    if (responseEntry === ContractNoBody || isNoBodyResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode);
-      return;
-    }
+    // A status code offering both JSON and SSE is answered per request, by `accept`, the way a
+    // real dual-mode route is; everything else has a single body to serve.
+    if (!serveEmptyBody && plan.json && plan.sse && plan.primaryKind !== "blob") {
+      const { json, sse } = plan;
 
-    if (isTextResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode, anyParams.responseText, {
-        "content-type": responseEntry.contentType,
-      });
-      return;
-    }
-
-    if (isBlobResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode, anyParams.responseBlob, {
-        "content-type": responseEntry.contentType,
-      });
-      return;
-    }
-
-    if (isStreamResponse(responseEntry)) {
-      await mockRule.thenReply(statusCode, anyParams.responseStream, {
-        "content-type": responseEntry.contentType,
-      });
-      return;
-    }
-
-    if (isSseResponse(responseEntry)) {
-      const body = formatSseResponse(
-        validateSseEvents(responseEntry.schemaByEventName, anyParams.events),
+      await mockRule.thenCallback((request) =>
+        acceptsSse(request.headers.accept)
+          ? {
+              statusCode,
+              headers: { "content-type": "text/event-stream" },
+              body: formatSseResponse(validateSseEvents(sse.schemaByEventName, anyParams.events)),
+            }
+          : {
+              statusCode,
+              headers: { "content-type": json.contentType },
+              body: JSON.stringify(validateResponseBody(json.schema, anyParams.responseJson)),
+            },
       );
-      await mockRule.thenReply(statusCode, body, {
-        "content-type": "text/event-stream",
+      return;
+    }
+
+    if (!serveEmptyBody && plan.sse && plan.primaryKind === "sse") {
+      const body = formatSseResponse(
+        validateSseEvents(plan.sse.schemaByEventName, anyParams.events),
+      );
+      await mockRule.thenReply(statusCode, body, { "content-type": "text/event-stream" });
+      return;
+    }
+
+    if (!serveEmptyBody && plan.blob && plan.primaryKind === "blob") {
+      await mockRule.thenReply(statusCode, anyParams.responseBlob, {
+        "content-type": plan.blob.contentType,
       });
       return;
     }
 
-    if (isAnyOfResponses(responseEntry)) {
-      const sseEntry = responseEntry.responses.find(isSseResponse);
-      const jsonEntry = responseEntry.responses.find(isJsonResponse);
-
-      await mockRule.thenCallback((request) => {
-        const accept = request.headers.accept ?? "";
-
-        if (accept.includes("text/event-stream") && sseEntry) {
-          return {
-            statusCode,
-            headers: { "content-type": "text/event-stream" },
-            body: formatSseResponse(
-              validateSseEvents(sseEntry.schemaByEventName, anyParams.events),
-            ),
-          };
-        }
-
-        if (jsonEntry) {
-          return {
-            statusCode,
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(validateResponseBody(jsonEntry, anyParams.responseJson)),
-          };
-        }
-
-        return { statusCode };
+    if (!serveEmptyBody && plan.json && plan.primaryKind === "json") {
+      const body = validateResponseBody(plan.json.schema, anyParams.responseJson);
+      await mockRule.thenReply(statusCode, JSON.stringify(body), {
+        "content-type": plan.json.contentType,
       });
       return;
     }
 
-    const body = validateResponseBody(responseEntry, anyParams.responseJson);
-    await mockRule.thenReply(statusCode, JSON.stringify(body), {
-      "content-type": "application/json",
-    });
+    await mockRule.thenReply(statusCode);
   }
 }

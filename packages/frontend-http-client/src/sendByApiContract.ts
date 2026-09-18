@@ -1,5 +1,6 @@
 import type {
   ApiContract,
+  BlobResponseHandle,
   ClientRequestParams,
   DefaultStreaming,
   HeadersParam,
@@ -35,7 +36,7 @@ export type ContractRequestOptions<DoCaptureAsError extends boolean = boolean> =
   captureAsError?: DoCaptureAsError;
   /**
    * When `true` (default), returns an error if the response `content-type` doesn't match the contract entry.
-   * When `false`, falls back to the entry's kind for single-entry responses.
+   * When `false`, falls back to the declared body for entries declaring exactly one.
    */
   strictContentType?: boolean;
   /**
@@ -137,16 +138,62 @@ async function* parseSseStream(
   }
 }
 
+/**
+ * Wraps a Fetch {@link Response} — which already implements the accessor surface — in a lazy,
+ * single-consume {@link BlobResponseHandle}. The guard makes the one-shot nature explicit: the
+ * first accessor claims the body, a second throws instead of surfacing Fetch's less obvious
+ * "body already used" error.
+ */
+function toBlobHandle(response: Response): BlobResponseHandle {
+  // A materialized fetch response always exposes a body stream; this only narrows the
+  // `ReadableStream | null` type and is unreachable in practice.
+  /* v8 ignore start */
+  if (!response.body) {
+    throw new Error("Response body is null");
+  }
+  /* v8 ignore stop */
+  const stream = response.body;
+
+  let consumed = false;
+  const claim = (): void => {
+    if (consumed) {
+      throw new Error("Response body already consumed");
+    }
+    consumed = true;
+  };
+
+  // The `async` accessors surface a second claim as a rejection rather than a synchronous throw,
+  // so `handle.text().catch(...)` catches it like any other body-read failure.
+  return {
+    stream: () => {
+      claim();
+      return stream;
+    },
+    blob: async () => {
+      claim();
+      return response.blob();
+    },
+    text: async () => {
+      claim();
+      return response.text();
+    },
+    arrayBuffer: async () => {
+      claim();
+      return response.arrayBuffer();
+    },
+    cancel: async () => {
+      claim();
+      return stream.cancel();
+    },
+  };
+}
+
 async function parseBody(response: Response, resolvedEntry: ResponseKind): Promise<unknown> {
   switch (resolvedEntry.kind) {
     case "noContent":
       return null;
-    case "text":
-      return await response.text();
     case "blob":
-      return await response.blob();
-    case "stream":
-      return response.body;
+      return toBlobHandle(response);
     case "json": {
       const json = await response.json();
       return await validate(resolvedEntry.schema, json);

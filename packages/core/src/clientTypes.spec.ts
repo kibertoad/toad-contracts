@@ -13,14 +13,13 @@ import type {
   InferNonSseClientResponse,
   InferSseClientResponse,
 } from "./clientTypes.ts";
-import { ContractNoBody } from "./constants.ts";
 import {
-  anyOfResponses,
+  type BlobResponseHandle,
+  blobBody,
   blobResponse,
   noBodyResponse,
   sseResponse,
-  streamResponse,
-  textResponse,
+  sseBody,
 } from "./contractResponse.ts";
 import { defineApiContract } from "./defineApiContract.ts";
 import type { StandardObjectKeysV1 } from "./standardObjectKeys.ts";
@@ -179,10 +178,12 @@ describe("clientTypes", () => {
         method: "get",
         pathResolver: () => "/feed",
         responsesByStatusCode: {
-          200: anyOfResponses([
-            sseResponse({ update: object({ id: string() }) }),
-            object({ latest: string() }),
-          ]),
+          200: {
+            content: {
+              "application/json": object({ latest: string() }),
+              "text/event-stream": sseBody({ update: object({ id: string() }) }),
+            },
+          },
         },
       });
       expectTypeOf<ClientRequestParams<typeof contract, true>["streaming"]>().toEqualTypeOf<true>();
@@ -223,10 +224,12 @@ describe("clientTypes", () => {
         method: "get",
         pathResolver: () => "/events",
         responsesByStatusCode: {
-          200: anyOfResponses([
-            sseResponse({ chunk: object({ delta: string() }) }),
-            object({ text: string() }),
-          ]),
+          200: {
+            content: {
+              "application/json": object({ text: string() }),
+              "text/event-stream": sseBody({ chunk: object({ delta: string() }) }),
+            },
+          },
         },
       });
       type Result = InferSseClientResponse<typeof contract>;
@@ -261,6 +264,57 @@ describe("clientTypes", () => {
           retry: number | undefined;
         }>;
       }>();
+    });
+
+    it("expands a multi-media-type success code into one union member per media type", () => {
+      const jsonSchema = object({ id: string() });
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/report",
+        responsesByStatusCode: {
+          200: { content: { "application/json": jsonSchema, "application/pdf": blobBody() } },
+        },
+      });
+      type Result = InferNonSseClientResponse<typeof contract>;
+      expectTypeOf<Result>().toEqualTypeOf<
+        | { statusCode: 200; headers: DefaultHeaders; body: { id: string } }
+        | { statusCode: 200; headers: DefaultHeaders; body: BlobResponseHandle }
+      >();
+    });
+
+    it("keeps JSON variants on one status code as distinct union members", () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/users/1",
+        responsesByStatusCode: {
+          200: {
+            content: {
+              "application/json": object({ id: string() }),
+              "application/json+01": object({ legacyId: number() }),
+            },
+          },
+        },
+      });
+      type Result = InferNonSseClientResponse<typeof contract>;
+      expectTypeOf<Result>().toEqualTypeOf<
+        | { statusCode: 200; headers: DefaultHeaders; body: { id: string } }
+        | { statusCode: 200; headers: DefaultHeaders; body: { legacyId: number } }
+      >();
+    });
+
+    it("adds a null-body member when an entry also allows an absent body", () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/maybe",
+        responsesByStatusCode: {
+          200: { content: { "application/json": object({ id: string() }) }, allowNoBody: true },
+        },
+      });
+      type Result = InferNonSseClientResponse<typeof contract>;
+      expectTypeOf<Result>().toEqualTypeOf<
+        | { statusCode: 200; headers: DefaultHeaders; body: { id: string } }
+        | { statusCode: 200; headers: DefaultHeaders; body: null }
+      >();
     });
 
     it("includes typed headers when responseHeaderSchema is defined", () => {
@@ -333,10 +387,12 @@ describe("clientTypes", () => {
         method: "get",
         pathResolver: () => "/events",
         responsesByStatusCode: {
-          200: anyOfResponses([
-            sseResponse({ chunk: object({ delta: string() }) }),
-            object({ text: string() }),
-          ]),
+          200: {
+            content: {
+              "application/json": object({ text: string() }),
+              "text/event-stream": sseBody({ chunk: object({ delta: string() }) }),
+            },
+          },
         },
       });
       type Result = InferNonSseClientResponse<typeof contract>;
@@ -367,20 +423,6 @@ describe("clientTypes", () => {
       }>();
     });
 
-    it("maps ContractNoBody success to null body", () => {
-      const contract = defineApiContract({
-        method: "delete",
-        pathResolver: () => "/products/1",
-        responsesByStatusCode: { 204: ContractNoBody },
-      });
-      type Result = InferNonSseClientResponse<typeof contract>;
-      expectTypeOf<Result>().toEqualTypeOf<{
-        statusCode: 204;
-        headers: DefaultHeaders;
-        body: null;
-      }>();
-    });
-
     it("maps noBodyResponse() success to null body", () => {
       const contract = defineApiContract({
         method: "delete",
@@ -395,21 +437,7 @@ describe("clientTypes", () => {
       }>();
     });
 
-    it("maps text success response to string body", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/export.csv",
-        responsesByStatusCode: { 200: textResponse("text/csv") },
-      });
-      type Result = InferNonSseClientResponse<typeof contract>;
-      expectTypeOf<Result>().toEqualTypeOf<{
-        statusCode: 200;
-        headers: DefaultHeaders;
-        body: string;
-      }>();
-    });
-
-    it("maps blob success response to Blob body", () => {
+    it("maps blob success response to a BlobResponseHandle body", () => {
       const contract = defineApiContract({
         method: "get",
         pathResolver: () => "/photo.png",
@@ -419,21 +447,7 @@ describe("clientTypes", () => {
       expectTypeOf<Result>().toEqualTypeOf<{
         statusCode: 200;
         headers: DefaultHeaders;
-        body: Blob;
-      }>();
-    });
-
-    it("maps stream success response to ReadableStream body (stays on the non-SSE side)", () => {
-      const contract = defineApiContract({
-        method: "get",
-        pathResolver: () => "/export-large.csv",
-        responsesByStatusCode: { 200: streamResponse("text/csv") },
-      });
-      type Result = InferNonSseClientResponse<typeof contract>;
-      expectTypeOf<Result>().toEqualTypeOf<{
-        statusCode: 200;
-        headers: DefaultHeaders;
-        body: ReadableStream<Uint8Array>;
+        body: BlobResponseHandle;
       }>();
     });
 

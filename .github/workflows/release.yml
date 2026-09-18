@@ -35,7 +35,7 @@ jobs:
       contents: write # push the version commit and the release tags
       id-token: write # npm OIDC trusted publishing + provenance
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The version commit and the tags are pushed from this job, so the
           # checkout keeps its credentials — the run's own GITHUB_TOKEN.

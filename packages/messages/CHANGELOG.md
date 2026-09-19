@@ -1,5 +1,14 @@
 # @toad-contracts/messages
 
+## 0.2.1
+
+### Patch Changes
+
+- f9b9e5a: Add a `prepublishOnly` script to every package so publishing always rebuilds `dist` (and the packages it depends on) first.
+- Updated dependencies [6cf843a]
+- Updated dependencies [f9b9e5a]
+  - @toad-contracts/core@1.0.0
+
 ## 0.2.0
 
 ### Minor Changes

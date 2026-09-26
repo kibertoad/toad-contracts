@@ -7,7 +7,7 @@ import {
   sseBody,
   sseResponse,
 } from "@toad-contracts/core";
-import { withObjectKeys } from "@toad-contracts/valibot";
+import { toStandardJsonSchema } from "@toad-contracts/valibot";
 import { getLocal } from "mockttp";
 import { number, object, optional, pipe, string, transform, unknown } from "valibot";
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from "vitest";
@@ -52,7 +52,7 @@ describe("sendByApiContract", () => {
 
     it("sends GET request with path params", async () => {
       const contract = defineApiContract({
-        requestPathParamsSchema: withObjectKeys(object({ productId: number() })),
+        requestPathParamsSchema: toStandardJsonSchema(object({ productId: number() })),
         method: "get",
         pathResolver: ({ productId }) => `/products/${productId}`,
         responsesByStatusCode: { 200: unknown() },
@@ -282,7 +282,7 @@ describe("sendByApiContract", () => {
 
     it("sends POST with path params and body", async () => {
       const contract = defineApiContract({
-        requestPathParamsSchema: withObjectKeys(object({ orgId: string() })),
+        requestPathParamsSchema: toStandardJsonSchema(object({ orgId: string() })),
         method: "post",
         pathResolver: ({ orgId }) => `/orgs/${orgId}/members`,
         requestBodySchema: object({ email: string() }),
@@ -303,7 +303,7 @@ describe("sendByApiContract", () => {
   describe("PUT", () => {
     it("sends PUT request", async () => {
       const contract = defineApiContract({
-        requestPathParamsSchema: withObjectKeys(object({ id: string() })),
+        requestPathParamsSchema: toStandardJsonSchema(object({ id: string() })),
         method: "put",
         pathResolver: ({ id }) => `/products/${id}`,
         requestBodySchema: object({ name: string() }),
@@ -325,7 +325,7 @@ describe("sendByApiContract", () => {
   describe("PATCH", () => {
     it("sends PATCH request", async () => {
       const contract = defineApiContract({
-        requestPathParamsSchema: withObjectKeys(object({ id: string() })),
+        requestPathParamsSchema: toStandardJsonSchema(object({ id: string() })),
         method: "patch",
         pathResolver: ({ id }) => `/products/${id}`,
         requestBodySchema: object({ name: string() }),
@@ -347,7 +347,7 @@ describe("sendByApiContract", () => {
   describe("DELETE", () => {
     it("sends DELETE request with a no-body response and returns null on 204", async () => {
       const contract = defineApiContract({
-        requestPathParamsSchema: withObjectKeys(object({ id: string() })),
+        requestPathParamsSchema: toStandardJsonSchema(object({ id: string() })),
         method: "delete",
         pathResolver: ({ id }) => `/products/${id}`,
         responsesByStatusCode: { 204: noBodyResponse() },

@@ -4,11 +4,10 @@ The [ArkType](https://arktype.io) adapter for [`@toad-contracts/core`](../core) 
 [`@toad-contracts/messages`](../messages).
 
 The core libraries are written against the vendor-neutral
-[Standard Schema](https://github.com/standard-schema/spec) interface, which ArkType implements
-(v2+). This package re-exports the entire core API and adds `withObjectKeys`, the ArkType
-implementation of the single object-key introspection surface (`StandardObjectKeysV1`) that API
-contracts need for path-param schemas and message contracts need for field introspection, something
-the Standard Schema interface does not expose.
+[Standard Schema](https://github.com/standard-schema/spec) interfaces. ArkType 2.1.28+ schemas implement
+both `StandardSchemaV1` and `StandardJSONSchemaV1`, which is everything core needs: path-param
+keys and message field names are read from the schema's `~standard.jsonSchema` output. ArkType
+schemas therefore work in contracts as they are, with no wrapper.
 
 `arktype` is a peer dependency.
 
@@ -16,27 +15,24 @@ the Standard Schema interface does not expose.
 pnpm add @toad-contracts/arktype arktype
 ```
 
-## What this package adds
+## Usage
 
-`withObjectKeys(schema)` attaches core's `StandardObjectKeysV1` surface to an ArkType object schema
-by reading the declared keys from `.props`:
+This package re-exports the entire `@toad-contracts/core` API, so it is a single import point:
 
 ```ts
-import { withObjectKeys } from "@toad-contracts/arktype";
+import { defineApiContract, getObjectKeys, mapApiContractToPath } from "@toad-contracts/arktype";
 import { type } from "arktype";
 
-const schema = withObjectKeys(type({ type: "'user.created'", id: "string" }));
+const getUser = defineApiContract({
+  method: "get",
+  requestPathParamsSchema: type({ userId: "string" }),
+  pathResolver: ({ userId }) => `/users/${userId}`,
+  responsesByStatusCode: { 200: type({ id: "string" }) },
+});
 
-schema["~standard"].objectKeys.input(); // ["type", "id"]
+mapApiContractToPath(getUser); // "/users/:userId"
+getObjectKeys(type({ type: "'user.created'", id: "string" })); // ["id", "type"]
 ```
 
-The same wrapper serves both an API contract's `requestPathParamsSchema` (so `mapApiContractToPath`
-can build the route path) and a [`@toad-contracts/messages`](../messages) `RoutableMessageSchema` (so
-a routing container can enumerate a message's declared field names) — one surface, no
-message-specific helper. Only object types expose their `.props`; a non-object type throws an
-actionable `TypeError` rather than silently yielding a schema with no object keys.
-
-Everything else is a direct re-export from `@toad-contracts/core` (including `validate` /
-`validateSync` for parsing a message through the schema). See the
-[`@toad-contracts/core` README](../core/README.md) and
+See the [`@toad-contracts/core` README](../core/README.md) and
 [`@toad-contracts/messages` README](../messages/README.md) for the full reference.

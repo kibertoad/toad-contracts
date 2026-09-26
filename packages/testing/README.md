@@ -51,7 +51,7 @@ with exact → range → `'default'` precedence, so a contract with only a `'2xx
 
 ```ts
 import { defineApiContract } from "@toad-contracts/core";
-import { withObjectKeys } from "@toad-contracts/valibot";
+import { toStandardJsonSchema } from "@toad-contracts/valibot";
 import { object, string } from "valibot";
 
 const contract = defineApiContract({
@@ -72,7 +72,7 @@ params are required when the contract declares `requestPathParamsSchema`:
 ```ts
 const getUser = defineApiContract({
   method: "get",
-  requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+  requestPathParamsSchema: toStandardJsonSchema(object({ userId: string() })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: { 200: object({ id: string() }) },
 });

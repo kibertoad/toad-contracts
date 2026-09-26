@@ -1,5 +1,5 @@
 import { defineApiContract, noBodyResponse, SchemaValidationError } from "@toad-contracts/core";
-import { withObjectKeys } from "@toad-contracts/valibot";
+import { toStandardJsonSchema } from "@toad-contracts/valibot";
 import { Hono } from "hono";
 import { array, object, optional, pipe, string, transform } from "valibot";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { requestByContract } from "./requestByContract.ts";
 
 const RESPONSE_BODY_SCHEMA = object({ name: string() });
 const REQUEST_BODY_SCHEMA = object({ id: string() });
-const PATH_PARAMS_SCHEMA = withObjectKeys(object({ userId: string() }));
+const PATH_PARAMS_SCHEMA = toStandardJsonSchema(object({ userId: string() }));
 const HEADERS_SCHEMA = object({ authorization: string() });
 const QUERY_SCHEMA = object({
   testIds: optional(array(string())),

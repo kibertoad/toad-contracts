@@ -1,11 +1,12 @@
 import { defineMessageContract, type InferConsumerMessage } from "@toad-contracts/messages";
-import { literal, object, string } from "valibot";
+import { check, date, literal, object, optional, pipe, string, transform } from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   blobResponse,
   ContractNoBody,
   defineApiContract,
   describeApiContract,
+  getObjectKeys,
   type InferNonSseClientResponse,
   jsonResponse,
   mapApiContractToPath,
@@ -13,34 +14,53 @@ import {
   resolveResponseEntry,
   sseBody,
   sseResponse,
+  toStandardJsonSchema,
   validateSync,
-  withObjectKeys,
 } from "./index.ts";
 
-describe("withObjectKeys", () => {
-  it("exposes the valibot object schema's keys via the ~standard.objectKeys surface", () => {
-    const schema = withObjectKeys(object({ orgId: string(), userId: string() }));
-    expect(schema["~standard"].objectKeys.input()).toEqual(["orgId", "userId"]);
-    expect(schema["~standard"].objectKeys.output()).toEqual(["orgId", "userId"]);
+describe("toStandardJsonSchema", () => {
+  it("lets getObjectKeys read a valibot object schema's keys", () => {
+    const schema = toStandardJsonSchema(object({ orgId: string(), userId: string() }));
+    expect(getObjectKeys(schema)).toEqual(["orgId", "userId"]);
+    expect(getObjectKeys(schema, "output")).toEqual(["orgId", "userId"]);
+  });
+
+  it("includes optional keys", () => {
+    expect(
+      getObjectKeys(toStandardJsonSchema(object({ a: string(), b: optional(string()) }))),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("reads keys through pipes, transforms and fields JSON Schema cannot represent", () => {
+    const schema = toStandardJsonSchema(
+      pipe(
+        object({ at: date(), name: string() }),
+        check(() => true),
+        transform((value) => value),
+      ),
+    );
+    expect(getObjectKeys(schema)).toEqual(["at", "name"]);
   });
 
   it("keeps the schema usable as a Standard Schema", () => {
-    const schema = withObjectKeys(object({ userId: string() }));
+    const schema = toStandardJsonSchema(object({ userId: string() }));
     expect(schema["~standard"].vendor).toBe("valibot");
     expect(validateSync(schema, { userId: "u1" })).toEqual({ userId: "u1" });
   });
 
-  it("throws an actionable error when the schema does not expose .entries", () => {
-    expect(() => withObjectKeys(string())).toThrow(/valibot object schema/);
+  it("makes getObjectKeys throw for a non-object schema", () => {
+    expect(() => getObjectKeys(toStandardJsonSchema(string()))).toThrow(/object schema/);
   });
 
   it("composes into a message contract with working type inference", () => {
     const contract = defineMessageContract({
-      consumerSchema: withObjectKeys(object({ type: literal("user.created"), id: string() })),
-      publisherSchema: withObjectKeys(object({ type: literal("user.created"), id: string() })),
+      consumerSchema: toStandardJsonSchema(object({ type: literal("user.created"), id: string() })),
+      publisherSchema: toStandardJsonSchema(
+        object({ type: literal("user.created"), id: string() }),
+      ),
     });
 
-    expect(contract.consumerSchema["~standard"].objectKeys.input()).toEqual(["type", "id"]);
+    expect(getObjectKeys(contract.consumerSchema)).toEqual(["type", "id"]);
     expectTypeOf<InferConsumerMessage<typeof contract>>().toEqualTypeOf<{
       type: "user.created";
       id: string;
@@ -48,7 +68,7 @@ describe("withObjectKeys", () => {
   });
 });
 
-describe("mapApiContractToPath (via withObjectKeys path-param schemas)", () => {
+describe("mapApiContractToPath (via toStandardJsonSchema path-param schemas)", () => {
   it("returns the static path when there is no requestPathParamsSchema", () => {
     const route = defineApiContract({
       method: "get",
@@ -62,7 +82,7 @@ describe("mapApiContractToPath (via withObjectKeys path-param schemas)", () => {
   it("replaces a single path param with a :placeholder", () => {
     const route = defineApiContract({
       method: "get",
-      requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+      requestPathParamsSchema: toStandardJsonSchema(object({ userId: string() })),
       pathResolver: ({ userId }) => `/users/${userId}`,
       responsesByStatusCode: {},
     });
@@ -73,7 +93,7 @@ describe("mapApiContractToPath (via withObjectKeys path-param schemas)", () => {
   it("replaces multiple path params", () => {
     const route = defineApiContract({
       method: "get",
-      requestPathParamsSchema: withObjectKeys(object({ orgId: string(), userId: string() })),
+      requestPathParamsSchema: toStandardJsonSchema(object({ orgId: string(), userId: string() })),
       pathResolver: ({ orgId, userId }) => `/orgs/${orgId}/users/${userId}`,
       responsesByStatusCode: {},
     });
@@ -86,7 +106,7 @@ describe("describeApiContract", () => {
   it("returns the uppercased method and path", () => {
     const route = defineApiContract({
       method: "get",
-      requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+      requestPathParamsSchema: toStandardJsonSchema(object({ userId: string() })),
       pathResolver: ({ userId }) => `/users/${userId}`,
       responsesByStatusCode: {},
     });

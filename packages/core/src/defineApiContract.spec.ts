@@ -1,4 +1,4 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
 import { object, string } from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { ContractNoBody } from "./constants.ts";
@@ -18,24 +18,27 @@ import {
   mapApiContractToPath,
 } from "./defineApiContract.ts";
 import type { InferJsonSuccessResponses } from "./inferTypes.ts";
-import type { StandardObjectKeysV1 } from "./standardObjectKeys.ts";
 
-// The core is vendor-neutral: it never reads object keys itself, it relies on the path-params schema
-// implementing the shared StandardObjectKeysV1 surface (dependency inversion). These tests exercise
-// that contract against a minimal hand-rolled Standard Schema that implements the surface directly,
-// rather than depending on any one library's introspection (the valibot `.entries` path is covered
-// by the adapter's own tests in @toad-contracts/valibot).
+// The core is vendor-neutral: it reads path-param keys from the schema's Standard JSON Schema output.
+// These tests exercise that against a minimal hand-rolled schema implementing both Standard Schema
+// and Standard JSON Schema, rather than depending on any one library (each adapter's own tests cover
+// its library).
+const objectJsonSchema = (keys: readonly string[]): Record<string, unknown> => ({
+  type: "object",
+  properties: Object.fromEntries(keys.map((key) => [key, { type: "string" }])),
+});
+
 const pathParamsSchema = <const K extends readonly string[]>(
   keys: K,
 ): StandardSchemaV1<Record<K[number], string>, Record<K[number], string>> &
-  StandardObjectKeysV1 => ({
+  StandardJSONSchemaV1<Record<K[number], string>, Record<K[number], string>> => ({
   "~standard": {
     version: 1,
     vendor: "toad-contracts-test",
     validate: (value) => ({ value: value as Record<K[number], string> }),
-    objectKeys: {
-      input: () => keys,
-      output: () => keys,
+    jsonSchema: {
+      input: () => objectJsonSchema(keys),
+      output: () => objectJsonSchema(keys),
     },
   },
 });

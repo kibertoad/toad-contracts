@@ -43,7 +43,7 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(vitest@4.1.9)
       arktype:
-        specifier: ^2.1.0
+        specifier: ^2.1.28
         version: 2.2.1
       rimraf:
         specifier: ^6.1.2
@@ -77,8 +77,8 @@ importers:
         specifier: 7.0.1-rc
         version: 7.0.1-rc
       valibot:
-        specifier: ^1.4.1
-        version: 1.4.1(typescript@7.0.1-rc)
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@7.0.1-rc)
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
@@ -120,8 +120,8 @@ importers:
         specifier: 7.0.1-rc
         version: 7.0.1-rc
       valibot:
-        specifier: ^1.4.1
-        version: 1.4.1(typescript@7.0.1-rc)
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@7.0.1-rc)
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
@@ -160,8 +160,8 @@ importers:
         specifier: 7.0.1-rc
         version: 7.0.1-rc
       valibot:
-        specifier: ^1.4.1
-        version: 1.4.1(typescript@7.0.1-rc)
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@7.0.1-rc)
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
@@ -228,8 +228,8 @@ importers:
         specifier: 7.0.1-rc
         version: 7.0.1-rc
       valibot:
-        specifier: ^1.4.1
-        version: 1.4.1(typescript@7.0.1-rc)
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@7.0.1-rc)
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
@@ -239,6 +239,9 @@ importers:
       '@toad-contracts/core':
         specifier: workspace:*
         version: link:../core
+      '@valibot/to-json-schema':
+        specifier: ^1.8.0
+        version: 1.8.0(valibot@1.5.0(typescript@7.0.1-rc))
     devDependencies:
       '@lokalise/tsconfig':
         specifier: ^5.0.0
@@ -262,8 +265,8 @@ importers:
         specifier: 7.0.1-rc
         version: 7.0.1-rc
       valibot:
-        specifier: ^1.4.1
-        version: 1.4.1(typescript@7.0.1-rc)
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@7.0.1-rc)
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
@@ -299,7 +302,7 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@25.9.4)(@vitest/coverage-v8@4.1.9)(msw@2.14.6(@types/node@25.9.4)(typescript@7.0.1-rc))(vite@8.1.0(@types/node@25.9.4))
       zod:
-        specifier: ^4.1.11
+        specifier: ^4.2.0
         version: 4.4.3
 
 packages:
@@ -1119,6 +1122,11 @@ packages:
     engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [win32]
+
+  '@valibot/to-json-schema@1.8.0':
+    resolution: {integrity: sha512-a0M+uwCuQZEPAo65NYkFSJ14O5c213KoSZmPdoCfuFvUhfULi4T2Z6Tpjv6lTVMW9RoLm74RpRAjNEa43KcN+g==}
+    peerDependencies:
+      valibot: ^1.5.0
 
   '@vitest/coverage-v8@4.1.9':
     resolution: {integrity: sha512-G9/lgqibheLVBDRuya45EbsEXTYcWoSG+TLg7i2axuzx0Eq62eXn+aWXyaVdV5vKvFSWd6ywcX8hA7la9Pvu8g==}
@@ -2392,8 +2400,8 @@ packages:
     resolution: {integrity: sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==}
     engines: {node: '>= 0.4.0'}
 
-  valibot@1.4.1:
-    resolution: {integrity: sha512-klCmFTz2jeDluy9RwX+F884TCiogtdBJ/YaxSx1EOBYXa3NXNWj8kR1jjN8rzluwojJVWWaHJ4r1U5LfICnM3g==}
+  valibot@1.5.0:
+    resolution: {integrity: sha512-nil6AkP2TChWL43Z5uJ6GTxX01CUA+g8LWUM+N/rB9NBbkUMaUsi9PUNzlUPgoKASgmx9f7eGOYpJ04/fSa6FQ==}
     peerDependencies:
       typescript: '>=5'
     peerDependenciesMeta:
@@ -3302,6 +3310,10 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.1-rc':
     optional: true
+
+  '@valibot/to-json-schema@1.8.0(valibot@1.5.0(typescript@7.0.1-rc))':
+    dependencies:
+      valibot: 1.5.0(typescript@7.0.1-rc)
 
   '@vitest/coverage-v8@4.1.9(vitest@4.1.9)':
     dependencies:
@@ -4624,7 +4636,7 @@ snapshots:
 
   utils-merge@1.0.1: {}
 
-  valibot@1.4.1(typescript@7.0.1-rc):
+  valibot@1.5.0(typescript@7.0.1-rc):
     optionalDependencies:
       typescript: 7.0.1-rc
 

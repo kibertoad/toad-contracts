@@ -1,4 +1,4 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
 import { boolean, number, object, optional, pipe, string, transform, unknown } from "valibot";
 import { describe, expectTypeOf, it } from "vitest";
 import type {
@@ -22,19 +22,19 @@ import {
   sseBody,
 } from "./contractResponse.ts";
 import { defineApiContract } from "./defineApiContract.ts";
-import type { StandardObjectKeysV1 } from "./standardObjectKeys.ts";
 
 type DefaultHeaders = Record<string, string>;
 
-// Stands in for a schema-library adapter implementing the shared StandardObjectKeysV1 surface, so
-// path-param schemas satisfy RequestPathParamsSchema without core depending on a concrete schema
-// library.
-const withKeys = <T extends StandardSchemaV1>(schema: T): T & StandardObjectKeysV1 => {
-  const keys = Object.keys((schema as unknown as { entries: Record<string, unknown> }).entries);
-  Object.assign(schema["~standard"], {
-    objectKeys: { input: () => keys, output: () => keys },
+// Stands in for a schema library that implements Standard JSON Schema, so path-param schemas satisfy
+// RequestPathParamsSchema without core depending on a concrete converter.
+const withKeys = <T extends StandardSchemaV1>(schema: T): T & StandardJSONSchemaV1 => {
+  const entries = (schema as unknown as { entries: Record<string, unknown> }).entries;
+  const jsonSchema = () => ({
+    type: "object",
+    properties: Object.fromEntries(Object.keys(entries).map((key) => [key, {}])),
   });
-  return schema as T & StandardObjectKeysV1;
+  Object.assign(schema["~standard"], { jsonSchema: { input: jsonSchema, output: jsonSchema } });
+  return schema as T & StandardJSONSchemaV1;
 };
 
 describe("clientTypes", () => {

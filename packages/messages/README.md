@@ -5,14 +5,13 @@ event message contracts, the message-side counterpart of [`@toad-contracts/core`
 contracts.
 
 Message routing libraries (for example
-[message-queue-toolkit](https://github.com/kibertoad/message-queue-toolkit)) need one capability
-that Standard Schema does not expose: enumerating a schema's declared field names with no value in
-hand — for field projection, routing-/partition-key derivation, partial-update payloads, and
-field-to-header mapping. This is the _same_ object-key introspection core uses to build route paths,
-so this package reuses core's `StandardObjectKeysV1` surface rather than defining a message-specific
-one. It carries no schema-library runtime dependency; the introspection is supplied by an adapter
-such as [`@toad-contracts/zod`](../zod) or [`@toad-contracts/valibot`](../valibot), each of which
-ships a single `withObjectKeys` that satisfies both API and message contracts.
+[message-queue-toolkit](https://github.com/kibertoad/message-queue-toolkit)) need to read a schema's
+declared field names with no value in hand, for field projection, routing- or partition-key
+derivation, partial-update payloads, and field-to-header mapping. Message schemas here implement
+Standard JSON Schema as well as Standard Schema, and core's `getObjectKeys` reads the field names
+from the JSON Schema `properties`, the same way core builds route paths. zod (4.2+) and arktype
+(2.1.28+) schemas qualify as they are; wrap valibot schemas with `toStandardJsonSchema` from
+[`@toad-contracts/valibot`](../valibot). This package carries no schema-library runtime dependency.
 
 ```sh
 pnpm add @toad-contracts/messages
@@ -20,9 +19,8 @@ pnpm add @toad-contracts/messages
 
 ## What it provides
 
-- `RoutableMessageSchema` — `StandardSchemaV1 & StandardObjectKeysV1`. A message schema whose declared
-  field names can be read via `schema["~standard"].objectKeys.input()` (the single object-key surface,
-  re-exported from `@toad-contracts/core`).
+- `RoutableMessageSchema` — `StandardSchemaV1 & StandardJSONSchemaV1`. A message schema whose declared
+  field names can be read with `getObjectKeys(schema)` (re-exported from `@toad-contracts/core`).
 - `MessageContract` — `{ consumerSchema, publisherSchema, schemaVersion?, producedBy?, domain?, tags? }`.
   No HTTP verb, path resolver, or status-code response map; a message needs none of those.
 - `defineMessageContract(contract)` — identity helper preserving the literal type for inference.
@@ -35,29 +33,28 @@ through any Standard Schema) is re-exported, so this is a single import point fo
 ## Usage
 
 ```ts
-import { defineMessageContract, type InferConsumerMessage } from "@toad-contracts/messages";
-import { withObjectKeys } from "@toad-contracts/zod"; // or @toad-contracts/valibot
+import {
+  defineMessageContract,
+  getObjectKeys,
+  type InferConsumerMessage,
+} from "@toad-contracts/messages";
 import { z } from "zod";
 
 const userCreated = defineMessageContract({
-  consumerSchema: withObjectKeys(
-    z.object({
-      type: z.literal("user.created"),
-      id: z.string(),
-      payload: z.object({ name: z.string() }),
-    }),
-  ),
-  publisherSchema: withObjectKeys(
-    z.object({
-      type: z.literal("user.created"),
-      id: z.string().optional(),
-      payload: z.object({ name: z.string() }),
-    }),
-  ),
+  consumerSchema: z.object({
+    type: z.literal("user.created"),
+    id: z.string(),
+    payload: z.object({ name: z.string() }),
+  }),
+  publisherSchema: z.object({
+    type: z.literal("user.created"),
+    id: z.string().optional(),
+    payload: z.object({ name: z.string() }),
+  }),
   domain: "users",
 });
 
-userCreated.consumerSchema["~standard"].objectKeys.input(); // ["type", "id", "payload"]
+getObjectKeys(userCreated.consumerSchema); // ["type", "id", "payload"]
 
 type UserCreated = InferConsumerMessage<typeof userCreated>;
 ```

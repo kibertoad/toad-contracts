@@ -1,4 +1,4 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
 import { SUCCESSFUL_HTTP_STATUS_CODES } from "./HttpStatusCodes.ts";
 import type { ContractNoBody } from "./constants.ts";
 import {
@@ -9,12 +9,12 @@ import {
   type ResponsesByStatusCode,
   type SseSchemaByEventName,
 } from "./contractResponse.ts";
+import { getObjectKeys } from "./objectSchemaKeys.ts";
 import type {
   CommonRouteDefinitionMetadata,
   InferSchemaOutput,
   RoutePathResolver,
 } from "./schemaTypes.ts";
-import type { StandardObjectKeysV1 } from "./standardObjectKeys.ts";
 import type { DistributiveOmit, Exactly } from "./typeUtils.ts";
 
 /**
@@ -22,8 +22,11 @@ import type { DistributiveOmit, Exactly } from "./typeUtils.ts";
  */
 export type RequestObjectSchema = StandardSchemaV1;
 
-/** A path-params schema: a Standard Schema that also carries object-key introspection. */
-export type RequestPathParamsSchema = RequestObjectSchema & StandardObjectKeysV1;
+/**
+ * A path-params schema: a Standard Schema that also implements Standard JSON Schema, which is how
+ * core reads the declared param names.
+ */
+export type RequestPathParamsSchema = RequestObjectSchema & StandardJSONSchemaV1;
 export type RequestQuerySchema = RequestObjectSchema;
 export type RequestHeaderSchema = RequestObjectSchema;
 export type ResponseHeaderSchema = RequestObjectSchema;
@@ -78,21 +81,21 @@ export const defineApiContract = <
 
 /**
  * Builds the route's path pattern, replacing each path param with a `:key` placeholder. The keys are
- * read through the schema's {@link StandardObjectKeysV1} surface, which the schema-library adapter
- * implements, so core needs no knowledge of the concrete schema library.
+ * read from the schema's Standard JSON Schema output with {@link getObjectKeys}, so core needs no
+ * knowledge of the concrete schema library.
  */
 export const mapApiContractToPath = (routeConfig: ApiContract): string => {
   if (!routeConfig.requestPathParamsSchema) {
     return routeConfig.pathResolver(undefined);
   }
 
-  const resolverParams = routeConfig.requestPathParamsSchema["~standard"].objectKeys
-    .input()
-    .reduce<Record<string, string>>((acc, key) => {
-      acc[key] = `:${key}`;
+  const resolverParams = getObjectKeys(routeConfig.requestPathParamsSchema).reduce<
+    Record<string, string>
+  >((acc, key) => {
+    acc[key] = `:${key}`;
 
-      return acc;
-    }, {});
+    return acc;
+  }, {});
 
   return routeConfig.pathResolver(resolverParams);
 };

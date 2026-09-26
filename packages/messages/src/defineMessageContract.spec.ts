@@ -1,5 +1,5 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { StandardObjectKeysV1 } from "@toad-contracts/core";
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
+import { getObjectKeys } from "@toad-contracts/core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   defineMessageContract,
@@ -11,24 +11,29 @@ import {
 
 /**
  * A hand-rolled {@link RoutableMessageSchema} so this package can be tested without depending on any
- * schema library. `Input`/`Output` drive the inference helpers; `keys` drive the shared object-key
- * surface a routing container reads.
+ * schema library. `Input`/`Output` drive the inference helpers; `keys` become the JSON Schema
+ * `properties` a routing container reads.
  */
+const objectJsonSchema = (keys: readonly string[]): Record<string, unknown> => ({
+  type: "object",
+  properties: Object.fromEntries(keys.map((key) => [key, {}])),
+});
+
 const makeSchema = <Input, Output = Input>(
   keys: readonly string[] = [],
-): StandardSchemaV1<Input, Output> & StandardObjectKeysV1 =>
+): StandardSchemaV1<Input, Output> & StandardJSONSchemaV1<Input, Output> =>
   Object.assign(
     {
       "~standard": {
         version: 1,
         vendor: "test",
         validate: (value: unknown) => ({ value: value as Output }),
-        objectKeys: {
-          input: () => keys,
-          output: () => keys,
+        jsonSchema: {
+          input: () => objectJsonSchema(keys),
+          output: () => objectJsonSchema(keys),
         },
       },
-    } satisfies StandardSchemaV1<Input, Output> & StandardObjectKeysV1,
+    } satisfies StandardSchemaV1<Input, Output> & StandardJSONSchemaV1<Input, Output>,
     {},
   );
 
@@ -63,13 +68,13 @@ describe("defineMessageContract", () => {
   });
 });
 
-describe("RoutableMessageSchema object-keys surface", () => {
+describe("RoutableMessageSchema field introspection", () => {
   it("exposes the declared field names a routing container reads at registration time", () => {
     const schema: RoutableMessageSchema = makeSchema<{ type: "order.placed"; id: string }>([
       "type",
       "id",
     ]);
-    expect(schema["~standard"].objectKeys.input()).toEqual(["type", "id"]);
-    expect(schema["~standard"].objectKeys.output()).toEqual(["type", "id"]);
+    expect(getObjectKeys(schema)).toEqual(["type", "id"]);
+    expect(getObjectKeys(schema, "output")).toEqual(["type", "id"]);
   });
 });

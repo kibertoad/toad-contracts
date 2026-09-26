@@ -14,27 +14,27 @@ The
 contract logic only depends on the `@standard-schema/spec` interface, not on a specific library.
 
 > Using valibot? Prefer [`@toad-contracts/valibot`](../valibot). It re-exports everything here and
-> adds `withObjectKeys`, which lets a valibot object schema satisfy the object-key introspection core
-> needs for path-param schemas. See [Path mapping](#path-mapping) below for the underlying mechanism.
+> adds `toStandardJsonSchema`, which valibot path-param schemas need. See
+> [Path mapping](#path-mapping) below for the underlying mechanism.
 
 ## Defining contracts
 
 ### REST routes
 
-A `requestPathParamsSchema` must expose its object keys so the route path can be built from the
-contract (see [Path mapping](#path-mapping)). The Standard Schema interface does not expose keys, so
-wrap the schema with your adapter's helper, here `withObjectKeys` from `@toad-contracts/valibot`.
-Query, header, body, and response schemas need no wrapping.
+A `requestPathParamsSchema` must also implement Standard JSON Schema so the route path can be built
+from the contract (see [Path mapping](#path-mapping)). zod (4.2+) and arktype (2.1.28+) schemas do
+this natively. Valibot schemas need `toStandardJsonSchema` from `@toad-contracts/valibot`. Query,
+header, body, and response schemas need no wrapping.
 
 ```ts
 import { defineApiContract, noBodyResponse } from "@toad-contracts/core";
-import { withObjectKeys } from "@toad-contracts/valibot";
+import { toStandardJsonSchema } from "@toad-contracts/valibot";
 import { object, string, pipe, uuid } from "valibot";
 
 // GET with path params
 const getUser = defineApiContract({
   method: "get",
-  requestPathParamsSchema: withObjectKeys(object({ userId: pipe(string(), uuid()) })),
+  requestPathParamsSchema: toStandardJsonSchema(object({ userId: pipe(string(), uuid()) })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: {
     200: object({ id: string(), name: string() }),
@@ -54,7 +54,7 @@ const createUser = defineApiContract({
 // DELETE with no response body
 const deleteUser = defineApiContract({
   method: "delete",
-  requestPathParamsSchema: withObjectKeys(object({ userId: pipe(string(), uuid()) })),
+  requestPathParamsSchema: toStandardJsonSchema(object({ userId: pipe(string(), uuid()) })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: {
     204: noBodyResponse(),
@@ -248,54 +248,37 @@ correct regardless of the actual status code.
 (`"/users/:userId"`); `describeApiContract(contract)` returns `"GET /users/:userId"`. Both are
 single-argument.
 
-To build the pattern, core needs the path-param field names. The Standard Schema spec is
-validation-only and does not expose an object schema's keys at runtime, so core ships
-`StandardObjectKeysV1` — a local copy of the [object-keys spec
-extension](../../docs/proposals/object-keys-introspection.md) — and requires a
-`requestPathParamsSchema` to implement it. It is the single object-key surface every adapter
-implements, shared with [`@toad-contracts/messages`](../messages) for message field introspection:
+To build the pattern, core needs the path-param field names. It reads them with
+`getObjectKeys(schema)`, which calls the schema's Standard JSON Schema converter
+(`~standard.jsonSchema.input`) and returns the keys of the resulting `properties`. `$ref`s into
+`$defs` and `allOf` intersections are followed; a union, record, or non-object schema throws a
+`TypeError`. Fields JSON Schema cannot represent (a `Date`, a custom check, a transform) do not
+matter: `getObjectKeys` passes each known library's option for emitting `{}` in their place.
 
 ```ts
-export interface StandardObjectKeysV1 {
-  readonly "~standard": {
-    // ...the usual version/vendor/types, plus:
-    readonly objectKeys: {
-      readonly input: () => readonly string[];
-      readonly output: () => readonly string[];
-    };
-  };
-}
-```
-
-The dependency is inverted: core depends only on this interface, never on a concrete schema library,
-and adapters satisfy it. `@toad-contracts/valibot` exposes `withObjectKeys`, which reads valibot's
-`.entries`:
-
-```ts
-import { mapApiContractToPath, describeApiContract } from "@toad-contracts/core";
-import { withObjectKeys } from "@toad-contracts/valibot";
-import { object, string } from "valibot";
+import {
+  defineApiContract,
+  describeApiContract,
+  getObjectKeys,
+  mapApiContractToPath,
+} from "@toad-contracts/zod";
+import { z } from "zod";
 
 const getUser = defineApiContract({
   method: "get",
-  requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+  requestPathParamsSchema: z.object({ userId: z.string() }),
   pathResolver: ({ userId }) => `/users/${userId}`,
-  responsesByStatusCode: { 200: object({ id: string() }) },
+  responsesByStatusCode: { 200: z.object({ id: z.string() }) },
 });
 
+getObjectKeys(getUser.requestPathParamsSchema); // ["userId"]
 mapApiContractToPath(getUser); // "/users/:userId"
 describeApiContract(getUser); // "GET /users/:userId"
 ```
 
-Without an adapter, implement the interface yourself by attaching an `objectKeys` lister to any
-Standard Schema's `~standard` properties:
-
-```ts
-const schema = object({ userId: string() });
-Object.assign(schema["~standard"], {
-  objectKeys: { input: () => ["userId"], output: () => ["userId"] },
-});
-```
+Core depends only on the `@standard-schema/spec` interfaces, never on a concrete schema library. Any
+schema implementing both `StandardSchemaV1` and `StandardJSONSchemaV1` works as a path-params
+schema.
 
 ## Type utilities
 
@@ -335,11 +318,8 @@ Primarily consumed by HTTP client implementations.
 - `ResponseEntry`, `ResponseContentMap`, `BodyDescriptor`, `BlobBody`, `SseBody`,
   `ResponseContentType`: the content-map response shapes.
 - `BlobResponseHandle`: the lazy, single-consume accessor a `blobBody()` response resolves to.
-- `RequestPathParamsSchema`: a Standard Schema that also implements `StandardObjectKeysV1`.
-- `StandardObjectKeysV1`: the `~standard.objectKeys` object-key introspection surface a path-param
-  schema must add so `mapApiContractToPath` can read its keys (see [Path mapping](#path-mapping)). A
-  local copy of the proposed [spec extension](../../docs/proposals/object-keys-introspection.md),
-  shared with `@toad-contracts/messages`.
+- `RequestPathParamsSchema`: a Standard Schema that also implements `StandardJSONSchemaV1`, so
+  `mapApiContractToPath` can read its keys (see [Path mapping](#path-mapping)).
 
 ## Utility functions
 

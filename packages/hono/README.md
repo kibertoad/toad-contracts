@@ -40,15 +40,15 @@ request schema (path params, query, headers, body). The handler is typed from th
 - the return value is constrained to the contract's `responsesByStatusCode`, so `c.json(body, status)`
   is checked against the declared body and status.
 
-Path-param schemas must be wrapped with `withObjectKeys` from `@toad-contracts/valibot` (or your
-schema adapter's equivalent). Core needs the path-param field names to build the route path, and the
-Standard Schema interface does not expose object keys; the adapter supplies that capability. Query,
-header and body schemas need no wrapping.
+Path-param schemas must implement Standard JSON Schema, because core reads the path-param field
+names from it to build the route path. zod (4.2+) and arktype (2.1.28+) schemas do this natively;
+wrap valibot schemas with `toStandardJsonSchema` from `@toad-contracts/valibot`. Query, header and
+body schemas need no wrapping.
 
 ```ts
 import { buildHonoRoute } from "@toad-contracts/hono";
 import { defineApiContract, noBodyResponse } from "@toad-contracts/core";
-import { withObjectKeys } from "@toad-contracts/valibot";
+import { toStandardJsonSchema } from "@toad-contracts/valibot";
 import { object, string } from "valibot";
 import { Hono } from "hono";
 
@@ -59,7 +59,7 @@ buildHonoRoute(
   app,
   defineApiContract({
     method: "get",
-    requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+    requestPathParamsSchema: toStandardJsonSchema(object({ userId: string() })),
     requestQuerySchema: QUERY_SCHEMA,
     pathResolver: ({ userId }) => `/users/${userId}`,
     responsesByStatusCode: { 200: RESPONSE_BODY_SCHEMA },
@@ -91,7 +91,7 @@ buildHonoRoute(
   app,
   defineApiContract({
     method: "delete",
-    requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+    requestPathParamsSchema: toStandardJsonSchema(object({ userId: string() })),
     pathResolver: ({ userId }) => `/users/${userId}`,
     responsesByStatusCode: { 204: noBodyResponse() },
   }),

@@ -3,11 +3,11 @@
 The [valibot](https://valibot.dev) adapter for [`@toad-contracts/core`](../core).
 
 The core contract library is written against the vendor-neutral
-[Standard Schema](https://github.com/standard-schema/spec) interface, which valibot v1 implements.
-This package re-exports the entire core API and adds `withObjectKeys`, the valibot implementation of
-the single object-key introspection surface (`StandardObjectKeysV1`) that API contracts need for
-path-param schemas and message contracts need for field introspection, something the Standard Schema
-interface does not expose.
+[Standard Schema](https://github.com/standard-schema/spec) interfaces. API contracts read
+path-param keys, and message contracts read field names, from a schema's Standard JSON Schema output
+(`~standard.jsonSchema`). Valibot schemas implement Standard Schema but not Standard JSON Schema, so
+this package re-exports the entire core API and adds `toStandardJsonSchema` from valibot's official
+`@valibot/to-json-schema` converter.
 
 `valibot` is a peer dependency.
 
@@ -26,13 +26,13 @@ import {
   defineApiContract,
   mapApiContractToPath,
   describeApiContract,
-  withObjectKeys,
+  toStandardJsonSchema,
 } from "@toad-contracts/valibot";
 import { object, string } from "valibot";
 
 const getUser = defineApiContract({
   method: "get",
-  requestPathParamsSchema: withObjectKeys(object({ userId: string() })),
+  requestPathParamsSchema: toStandardJsonSchema(object({ userId: string() })),
   pathResolver: ({ userId }) => `/users/${userId}`,
   responsesByStatusCode: {
     200: object({ id: string(), name: string() }),
@@ -45,40 +45,23 @@ describeApiContract(getUser); // "GET /users/:userId"
 
 ## What this package adds
 
-`withObjectKeys(schema)` is the only addition; everything else is a direct re-export from
-`@toad-contracts/core`.
+`toStandardJsonSchema(schema)` is the only addition; everything else is a direct re-export from
+`@toad-contracts/core`. It is re-exported from `@valibot/to-json-schema` and returns a schema that
+implements both `StandardSchemaV1` and `StandardJSONSchemaV1`.
 
-API contracts need a `requestPathParamsSchema` to expose its object keys to build the route path, and
-message contracts need a schema's declared field names for routing/projection — both read through the
-same `StandardObjectKeysV1` surface, which the Standard Schema interface does not provide.
-`withObjectKeys` attaches that capability to a valibot object schema by reading its `.entries`:
+Wrap any path-param or message schema with it. Because it uses valibot's own converter, it works on
+any object schema the converter understands, including `pipe(object(...), ...)`. Core's
+`getObjectKeys` asks the converter to emit `{}` for fields JSON Schema cannot represent (such as
+`date()` or a `check` action), so those do not block key listing. A non-object schema makes
+`getObjectKeys` throw a `TypeError`.
 
-```ts
-// effectively:
-export const withObjectKeys = (schema) => {
-  const keys = Object.keys(schema.entries);
-  Object.assign(schema["~standard"], {
-    objectKeys: { input: () => keys, output: () => keys },
-  });
-  return schema;
-};
-```
-
-Wrap any path-param or message schema with it. Only plain object schemas (`object`, `strictObject`,
-`looseObject`, `objectWithRest`) expose `.entries`; a wrapped schema such as `pipe(object(...), ...)`
-or a non-object schema does not, so `withObjectKeys` throws an actionable `TypeError` rather than
-silently producing a schema with no object keys.
-
-The path-mapping helpers `mapApiContractToPath(contract)` and `describeApiContract(contract)` are
-re-exported from core unchanged and already single-argument; they read the keys through whatever
-`withObjectKeys` attached. The same wrapper makes a schema satisfy
-[`@toad-contracts/messages`](../messages)' `RoutableMessageSchema`, so a routing container can
-enumerate a message's declared field names — no separate message-specific helper is needed:
+The wrapped schema also satisfies [`@toad-contracts/messages`](../messages)'
+`RoutableMessageSchema`:
 
 ```ts
-import { withObjectKeys } from "@toad-contracts/valibot";
+import { getObjectKeys, toStandardJsonSchema } from "@toad-contracts/valibot";
 import { literal, object, string } from "valibot";
 
-const schema = withObjectKeys(object({ type: literal("user.created"), id: string() }));
-schema["~standard"].objectKeys.input(); // ["type", "id"]
+const schema = toStandardJsonSchema(object({ type: literal("user.created"), id: string() }));
+getObjectKeys(schema); // ["type", "id"]
 ```

@@ -278,7 +278,7 @@ export async function sendByApiContract<
     anyParams.pathPrefix,
   );
   const queryString = validatedQueryParams
-    ? stringify(validatedQueryParams as Record<string, unknown>)
+    ? stringify(withoutUndefined(validatedQueryParams as Record<string, unknown>))
     : "";
   const fullUrl = queryString ? `${path}?${queryString}` : path;
   // Strings are sent verbatim so a non-JSON content-type (e.g. text/plain) keeps its raw payload;
@@ -370,4 +370,12 @@ export async function sendByApiContract<
 
   // oxlint-disable-next-line typescript/no-explicit-any -- return type is inferred from TIsStreaming
   return { result: parsedResponse } as any;
+}
+
+/**
+ * `fast-querystring` serialises an `undefined` value as an empty parameter (`?key=`), which an
+ * optional field in the query schema then refuses on the server. An unset key has to be absent.
+ */
+function withoutUndefined(query: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined));
 }

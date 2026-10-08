@@ -87,6 +87,23 @@ describe("sendByApiContract", () => {
       expect(result.result).toMatchObject({ body: [{ id: 1 }] });
     });
 
+    it("leaves an undefined query param out instead of sending it empty", async () => {
+      const contract = defineApiContract({
+        method: "get",
+        pathResolver: () => "/products",
+        requestQuerySchema: object({ limit: number(), owner: optional(string()) }),
+        responsesByStatusCode: { 200: unknown() },
+      });
+
+      await mockServer.forGet("/products").withExactQuery("?limit=3").thenJson(200, []);
+
+      const result = await sendByApiContract(buildClient(), contract, {
+        queryParams: { limit: 3, owner: undefined },
+      });
+
+      expect(result.result).toMatchObject({ body: [] });
+    });
+
     it("sends GET request with headers", async () => {
       const contract = defineApiContract({
         method: "get",

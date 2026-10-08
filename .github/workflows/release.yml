@@ -8,8 +8,8 @@ name: Release
 #          under "Trusted publisher" in its settings on npmjs.com
 #
 # On every push to main this applies the pending changesets (version bumps +
-# changelogs), publishes the packages whose version is not on npm yet, and
-# pushes the version commit together with the release tags.
+# changelogs), pushes that version commit, publishes the packages whose version
+# is not on npm yet, and pushes the release tags.
 #
 # Versioning and publishing deliberately happen in the same run. A push made
 # with GITHUB_TOKEN does not start another workflow run, so a release must
@@ -74,6 +74,17 @@ jobs:
           git commit --message 'chore: release packages'
           echo 'versioned=true' >> "$GITHUB_OUTPUT"
 
+      # Pushed before publishing, so that a publish failing partway still leaves
+      # git and npm reconcilable: main records the versions, the changesets are
+      # consumed, and the next run retries exactly the packages still missing
+      # from the registry. Pushing afterwards instead strands a partial release
+      # — live on npm, absent from main, and re-bumped by every later run.
+      - name: Push the version commit
+        if: steps.version.outputs.versioned == 'true'
+        run: git push origin "HEAD:$BRANCH"
+        env:
+          BRANCH: ${{ github.ref_name }}
+
       # `changeset publish` skips every package whose version is already on the
       # registry, so this is a no-op unless the step above bumped something (or
       # an earlier run bumped it but failed to publish). Each published package
@@ -83,13 +94,9 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: 'true'
 
-      # Pushed only after a successful publish: when publishing fails the
-      # version commit stays local and the changesets are retried next run.
-      - name: Push the version commit
-        if: steps.version.outputs.versioned == 'true'
-        run: git push origin "HEAD:$BRANCH"
-        env:
-          BRANCH: ${{ github.ref_name }}
-
+      # Runs even when the publish step failed: `changeset publish` publishes
+      # what it can and tags exactly those, so the packages that did go out keep
+      # their tags instead of losing them with the runner.
       - name: Push the release tags
+        if: ${{ !cancelled() }}
         run: git push origin --tags
